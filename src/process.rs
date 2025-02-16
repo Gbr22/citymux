@@ -2,8 +2,8 @@
 
 
 pub struct ProcessData {
-    pub stdin: Box<dyn tokio::io::AsyncWrite + Unpin>,
-    pub stdout: Box<dyn tokio::io::AsyncRead + Unpin>,
+    pub stdin: Box<dyn tokio::io::AsyncWrite + Unpin + Send + Sync>,
+    pub stdout: Box<dyn tokio::io::AsyncRead + Unpin + Send + Sync>,
     pub dyn_data: Box<dyn ProcessDataDyn>,
 }
 

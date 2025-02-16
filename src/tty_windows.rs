@@ -50,8 +50,8 @@ pub async fn spawn_interactive_process(program: &str) -> windows::core::Result<P
         let layout = Layout::from_size_align(attribute_list_size, mem::size_of::<usize>()).unwrap();
         let attribute_list = alloc(layout);
         let attribute_list = LPPROC_THREAD_ATTRIBUTE_LIST(attribute_list as *mut std::ffi::c_void);
-        InitializeProcThreadAttributeList(Some(attribute_list), 1, None, &mut attribute_list_size).expect("Alma");
-        UpdateProcThreadAttribute(attribute_list, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE as usize, Some(hpcon.0 as *mut c_void), mem::size_of::<HPCON>() as usize, None, None).expect("Körte");
+        InitializeProcThreadAttributeList(Some(attribute_list), 1, None, &mut attribute_list_size)?;
+        UpdateProcThreadAttribute(attribute_list, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE as usize, Some(hpcon.0 as *mut c_void), mem::size_of::<HPCON>() as usize, None, None)?;
 
         let mut startup_info_ex = STARTUPINFOEXW {
             StartupInfo: STARTUPINFOW {

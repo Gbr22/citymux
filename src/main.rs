@@ -1,8 +1,8 @@
-use std::{fs, pin::Pin, process::Stdio, sync::Arc};
+use std::{fs, future::Future, pin::Pin, process::Stdio, sync::Arc};
 
 use crossterm_winapi::{ConsoleMode, Handle};
 use escape_codes::{get_cursor_position, DisableConcealMode, EnableComprehensiveKeyboardHandling, EnterAlternateScreenBuffer, MoveCursor, RequestCursorPosition};
-use tokio::{io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Stdin}, sync::{Mutex, RwLock}};
+use tokio::{io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Stdin}, sync::{futures, Mutex, RwLock}, task::JoinSet};
 use which::which;
 use winapi::{shared::minwindef::DWORD, um::wincon::{ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT}};
 use tty_windows::spawn_interactive_process;
@@ -17,32 +17,34 @@ struct Size {
 }
 
 struct Process {
-    pub stdout: Arc<Mutex<dyn AsyncRead + Unpin>>,
-    pub stdin: Arc<Mutex<dyn AsyncWrite + Unpin>>,
+    pub stdout: Arc<Mutex<dyn AsyncRead + Unpin + Send + Sync>>,
+    pub stdin: Arc<Mutex<dyn AsyncWrite + Unpin + Send + Sync>>,
 }
 
 struct State {
-    pub stdin: Arc<Mutex<dyn AsyncRead + Unpin>>,
-    pub stdout: Arc<Mutex<dyn AsyncWrite + Unpin>>,
+    pub stdin: Arc<Mutex<dyn AsyncRead + Unpin + Send + Sync>>,
+    pub stdout: Arc<Mutex<dyn AsyncWrite + Unpin + Send + Sync>>,
     pub size: Arc<RwLock<Size>>,
     pub processes: Arc<Mutex<Vec<Arc<Mutex<Process>>>>>,
+    pub futures: Arc<Mutex<Vec<Pin<Box<dyn std::future::Future<Output = ()>>>>>>,
 }
 
 impl State {
     pub async fn get_active_process(&self) -> Result<Option<Arc<Mutex<Process>>>, Box<dyn std::error::Error>> {
         let lock = self.processes.lock().await;
-        
-        Ok(lock.first().cloned())
+        let first = lock.first();
+        Ok(first.cloned())
     }
 }
 
 impl State {
-    fn new(input: impl AsyncRead + Unpin + 'static, output: impl AsyncWrite + Unpin + 'static) -> Self {
+    fn new(input: impl AsyncRead + Unpin + Send + Sync + 'static, output: impl AsyncWrite + Unpin + Send + Sync + 'static) -> Self {
         State {
             stdin: Arc::new(Mutex::new(input)),
             stdout: Arc::new(Mutex::new(output)),
             size: Arc::new(RwLock::new(Size { height: 0, width: 0 })),
             processes: Arc::new(Mutex::new(Vec::new())),
+            futures: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -67,7 +69,6 @@ async fn handle_stdin(state_container: StateContainer) -> Result<(), Box<dyn std
         let stdin = state_container.get_state().stdin.clone();
         let mut stdin = stdin.lock().await;
         let result = stdin.read_u8().await?;
-        println!("Input: {:?} {:?}", result, char::from_u32(result as u32).unwrap_or(' '));
 
         if result == b'q' {
             std::process::exit(0);
@@ -86,32 +87,88 @@ async fn handle_stdin(state_container: StateContainer) -> Result<(), Box<dyn std
     }
 }
 
-async fn handle_stdout(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_process(state_container: StateContainer, process: Arc<Mutex<Process>>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut escape_distance: Option<usize> = None;
+    let mut is_csi = false;
+    let mut is_osc = false;
+    let mut collected = Vec::new();
     loop {
-        let processes = state_container.get_state().processes.clone();
-        let processes = {
-            let processes = processes.lock().await;
-            processes.clone()
+        let stdout = {
+            let process = process.lock().await;
+            process.stdout.clone()
         };
-        for process in processes.iter() {
-            let stdout = {
-                let process = process.lock().await;
-                process.stdout.clone()
-            };
-            let mut stdout = stdout.lock().await;
-            let mut buf = [0; 1024];
-            let n = stdout.read(&mut buf).await?;
-            if n == 0 {
-                return Ok(());
-            }
-
-            state_container.get_state().stdout.lock().await.write(&buf[..n]).await?;
+        let mut stdout = stdout.lock().await;
+        let mut buf = [0; 1];
+        let n = stdout.read(&mut buf).await?;
+        if n == 0 {
+            return Ok(());
         }
+        let byte = buf[0];
+        if let Some(escape_distance_value) = escape_distance {
+            escape_distance = Some(escape_distance_value + 1);
+        }
+        if byte == 0x1b {
+            escape_distance = Some(0);
+            continue;
+        }
+
+        let csi_final_bytes = r"@[\]^_`{|}~";
+        let is_csi_final_byte = (byte as char).is_alphabetic() || csi_final_bytes.as_bytes().contains(&byte);
+        if is_csi && is_csi_final_byte {
+            is_csi = false;
+            escape_distance = None;
+            collected.push(byte);
+            print!("[CSI:{:?}]", String::from_utf8_lossy(&collected));
+            collected = Vec::new();
+            continue;
+        }
+        if is_csi {
+            collected.push(byte);
+            continue;
+        }
+        const ST_C1: u8 = 0x9c;
+        const BEL: u8 = 0x07;
+        if byte == ST_C1 || (escape_distance == Some(1) && byte == b'\\') || byte == BEL {
+            is_osc = false;
+            print!("[OSC:{:?}]", String::from_utf8_lossy(&collected));
+            collected = Vec::new();
+            continue;
+        }
+        
+        if is_osc {
+            collected.push(byte);
+            continue;
+        }
+        
+        if byte == 0x9b || (escape_distance == Some(1) && byte == b'[') { // CSI
+            is_csi = true;
+            continue;
+        }
+        if byte == 0x9d || (escape_distance == Some(1) && byte == b']') { // OSC
+            print!("[OSC-E:{:?}]", byte);
+            is_osc = true;
+            continue;
+        }
+        
+    
+        state_container.get_state().stdout.lock().await.write(&buf[..n]).await?;
     }
 }
 
-async fn open_program(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
-    Ok(())
+async fn handle_stdout(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
+    loop {
+        let new_futures = {
+            let futures = state_container.get_state().futures.clone();
+            let mut futures = futures.lock().await;
+            let len = futures.len();
+            let result: Vec<Pin<Box<dyn Future<Output = ()>>>> = futures.drain(0..len).collect();
+            result
+        };
+        
+        for process in new_futures {
+            process.await;
+        }
+    }
 }
 
 fn enable_raw_mode() -> Result<(), Box<dyn std::error::Error>> {
@@ -158,7 +215,24 @@ async fn spawn_process(state_container: StateContainer) -> Result<(), Box<dyn st
     let processes = state_container.get_state().processes.clone();
     {
         let mut processes = processes.lock().await;
-        processes.push(Arc::new(Mutex::new(process)));
+        let process = Arc::new(Mutex::new(process));
+        let future = {
+            let process = process.clone();
+            let state_container = state_container.clone();
+            async move {
+                let result = handle_process(state_container, process).await;
+                if let Err(e) = result {
+                    eprintln!("Error: {:?}", e);
+                }
+            }
+        };
+        
+        processes.push(process);
+        {
+            let futures = state_container.get_state().futures.clone();
+            let mut futures = futures.lock().await;
+            futures.push(Box::pin(future));
+        }
     }
 
     Ok(())
