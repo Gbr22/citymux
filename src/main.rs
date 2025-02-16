@@ -64,26 +64,71 @@ impl StateContainer {
     }
 }
 
+const csi_final_bytes: &str = r"@[\]^_`{|}~";
+
+async fn write(state_container: StateContainer, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    let active_process = state_container.get_state().get_active_process().await?;
+    if let Some(active_process) = active_process {
+        let process = active_process.lock().await;
+        let mut stdin = process.stdin.lock().await;
+        stdin.write(data).await?;
+        stdin.flush().await?;
+    }
+
+    Ok(())
+}
+
 async fn handle_stdin(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
+    let mut escape_distance: Option<usize> = None;
+    let mut is_csi = false;
+    let mut is_osc = false;
+    let mut collected = Vec::new();
+    
     loop {
         let stdin = state_container.get_state().stdin.clone();
         let mut stdin = stdin.lock().await;
-        let result = stdin.read_u8().await?;
 
-        if result == b'q' {
+        let mut buf = [0; 1];
+        let n = stdin.read(&mut buf).await?;
+        if n == 0 {
+            return Ok(());
+        }
+        let byte = buf[0];
+        if let Some(escape_distance_value) = escape_distance {
+            escape_distance = Some(escape_distance_value + 1);
+        }
+        if byte == 0x1b {
+            escape_distance = Some(0);
+            continue;
+        }
+        let is_csi_final_byte = (byte as char).is_alphabetic() || csi_final_bytes.as_bytes().contains(&byte);
+        if is_csi && is_csi_final_byte {
+            is_csi = false;
+            escape_distance = None;
+            collected.push(byte);
+            print!("[IN-CSI:{:?}]", String::from_utf8_lossy(&collected));
+            let prefix = "\x1b[".as_bytes();
+            let concat: Vec<u8> = prefix.iter().chain(collected.iter()).map(|e|e.to_owned()).collect();
+            write(state_container.clone(), &concat).await?;
+
+            collected = Vec::new();
+            continue;
+        }
+        if is_csi {
+            collected.push(byte);
+            continue;
+        }
+
+        if byte == 0x9b || (escape_distance == Some(1) && byte == b'[') { // CSI
+            is_csi = true;
+            continue;
+        }
+
+        if byte == b'q' {
             std::process::exit(0);
         }
 
-        let active_process = state_container.get_state().get_active_process().await?;
-        if let Some(active_process) = active_process {
-            let process = active_process.lock().await;
-            let mut stdin = process.stdin.lock().await;
-            stdin.write(&[result]).await?;
-            if result == b'\r' {
-                stdin.write(&[b'\n']).await?;
-            }
-            stdin.flush().await?;
-        }
+        write(state_container.clone(), &buf[..n]).await?;
     }
 }
 
@@ -111,8 +156,7 @@ async fn handle_process(state_container: StateContainer, process: Arc<Mutex<Proc
             escape_distance = Some(0);
             continue;
         }
-
-        let csi_final_bytes = r"@[\]^_`{|}~";
+        
         let is_csi_final_byte = (byte as char).is_alphabetic() || csi_final_bytes.as_bytes().contains(&byte);
         if is_csi && is_csi_final_byte {
             is_csi = false;
@@ -126,6 +170,7 @@ async fn handle_process(state_container: StateContainer, process: Arc<Mutex<Proc
             collected.push(byte);
             continue;
         }
+
         const ST_C1: u8 = 0x9c;
         const BEL: u8 = 0x07;
         if byte == ST_C1 || (escape_distance == Some(1) && byte == b'\\') || byte == BEL {
@@ -145,7 +190,6 @@ async fn handle_process(state_container: StateContainer, process: Arc<Mutex<Proc
             continue;
         }
         if byte == 0x9d || (escape_distance == Some(1) && byte == b']') { // OSC
-            print!("[OSC-E:{:?}]", byte);
             is_osc = true;
             continue;
         }
@@ -205,7 +249,8 @@ async fn draw_main_menu(state_container: StateContainer) -> Result<(), Box<dyn s
 }
 
 async fn spawn_process(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
-    let program = which("bash")?.to_string_lossy().to_string();
+    let program = "cmd";
+    let program = which(program)?.to_string_lossy().to_string();
     let result = spawn_interactive_process(&program).await?;
     let process = Process {
         stdin: Arc::new(Mutex::new(result.stdin)),

@@ -2,6 +2,7 @@ use std::alloc::{alloc, Layout};
 use std::os::raw::c_void;
 use std::{mem, os::windows::io::FromRawHandle, ptr};
 
+use tokio::io::AsyncWriteExt;
 use windows::core::HRESULT;
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Console::ClosePseudoConsole;
