@@ -1,5 +1,7 @@
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
+use crate::canvas::Vector2;
+
 pub struct MoveCursor {
     y: usize,
     x: usize,
@@ -11,9 +13,15 @@ impl MoveCursor {
     }
 }
 
+impl From<Vector2> for MoveCursor {
+    fn from(vector: Vector2) -> Self {
+        MoveCursor { y: vector.y, x: vector.x }
+    }
+}
+
 impl Into<Vec<u8>> for MoveCursor {
     fn into(self) -> Vec<u8> {
-        let string = format!("\x1b[{};{}H", self.y, self.x);
+        let string = format!("\x1b[{};{}H", self.y+1, self.x+1);
         string.as_bytes().to_owned()
     }
 }
@@ -84,8 +92,49 @@ impl Default for EnableComprehensiveKeyboardHandling {
 
 impl Into<&[u8]> for EnableComprehensiveKeyboardHandling {
     fn into(self) -> &'static [u8] {
-        //"\x1b[>1u".as_bytes()
-        "\x1b[?u".as_bytes()
+        "\x1b[>1u".as_bytes()
+    }
+}
+
+pub struct EraseInDisplay  {
+    value: u8,
+}
+
+impl Default for EraseInDisplay {
+    fn default() -> Self {
+        EraseInDisplay {
+            value: 3
+        }
+    }
+}
+
+pub enum EraseInDisplayKind {
+    FromCursorToEndOfScreen = 0,
+    FromCursorToBeginningOfScreen = 1,
+    EntireScreen = 2,
+    EntireScreenAndScrollbackBuffer = 3,
+}
+
+impl EraseInDisplay {
+    pub fn new(value: EraseInDisplayKind) -> Self {
+        EraseInDisplay {
+            value: value as u8
+        }
+    }
+}
+
+impl From<EraseInDisplayKind> for EraseInDisplay {
+    fn from(kind: EraseInDisplayKind) -> Self {
+        EraseInDisplay {
+            value: kind as u8
+        }
+    }
+}
+
+impl Into<Vec<u8>> for EraseInDisplay {
+    fn into(self) -> Vec<u8> {
+        let string = format!("\x1b[{}J", self.value);
+        string.as_bytes().to_owned()
     }
 }
 

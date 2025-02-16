@@ -18,3 +18,5 @@ windows = { version = "0.59.0", features = [
 ] }
 windows-sys = { version = "0.59.0" }
 os_pipe = "1.2.1"
+tracing = "0.1"
+tracing-subscriber = "0.3"

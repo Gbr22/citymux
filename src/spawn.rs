@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 use which::which;
 use tokio::sync::Mutex;
 
-use crate::{handle_process, tty::spawn_interactive_process, Process, StateContainer, Vector2};
+use crate::{canvas::Canvas, process::handle_process, tty::spawn_interactive_process, Process, StateContainer, Vector2};
 
 pub async fn spawn_process(state_container: StateContainer, size: Vector2) -> Result<(), Box<dyn std::error::Error>> {
     let program = "cmd";
@@ -13,9 +13,7 @@ pub async fn spawn_process(state_container: StateContainer, size: Vector2) -> Re
     let process = Process {
         stdin: Arc::new(Mutex::new(result.stdin)),
         stdout: Arc::new(Mutex::new(result.stdout)),
-        size,
-        cursor: Vector2 { x: 0, y: 0 },
-        buffer: Vec::new(),
+        canvas: Arc::new(Mutex::new(Canvas::new(size))),
     };
 
     let processes = state_container.get_state().processes.clone();
