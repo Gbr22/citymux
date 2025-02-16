@@ -1,30 +1,42 @@
-use std::{fs, future::Future, pin::Pin, process::Stdio, sync::Arc};
+use std::{collections::HashMap, fs, future::Future, pin::Pin, process::Stdio, sync::Arc, time::Duration};
 
 use crossterm_winapi::{ConsoleMode, Handle};
 use escape_codes::{get_cursor_position, DisableConcealMode, EnableComprehensiveKeyboardHandling, EnterAlternateScreenBuffer, MoveCursor, RequestCursorPosition};
+use spawn::spawn_process;
 use tokio::{io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Stdin}, sync::{futures, Mutex, RwLock}, task::JoinSet};
-use which::which;
 use winapi::{shared::minwindef::DWORD, um::wincon::{ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT}};
-use tty_windows::spawn_interactive_process;
 
 mod escape_codes;
 mod tty_windows;
 mod process;
+mod spawn;
+mod tty;
 
-struct Size {
-    height: usize,
-    width: usize,
+#[derive(Clone, Copy)]
+struct Vector2 {
+    x: usize,
+    y: usize,
+}
+
+struct Color {}
+
+struct Cell {
+    value: char,
+    color: Color,
 }
 
 struct Process {
     pub stdout: Arc<Mutex<dyn AsyncRead + Unpin + Send + Sync>>,
     pub stdin: Arc<Mutex<dyn AsyncWrite + Unpin + Send + Sync>>,
+    pub size: Vector2,
+    pub buffer: Vec<Cell>,
+    pub cursor: Vector2,
 }
 
 struct State {
     pub stdin: Arc<Mutex<dyn AsyncRead + Unpin + Send + Sync>>,
     pub stdout: Arc<Mutex<dyn AsyncWrite + Unpin + Send + Sync>>,
-    pub size: Arc<RwLock<Size>>,
+    pub size: Arc<RwLock<Vector2>>,
     pub processes: Arc<Mutex<Vec<Arc<Mutex<Process>>>>>,
     pub futures: Arc<Mutex<Vec<Pin<Box<dyn std::future::Future<Output = ()>>>>>>,
 }
@@ -37,12 +49,14 @@ impl State {
     }
 }
 
+
+
 impl State {
     fn new(input: impl AsyncRead + Unpin + Send + Sync + 'static, output: impl AsyncWrite + Unpin + Send + Sync + 'static) -> Self {
         State {
             stdin: Arc::new(Mutex::new(input)),
             stdout: Arc::new(Mutex::new(output)),
-            size: Arc::new(RwLock::new(Size { height: 0, width: 0 })),
+            size: Arc::new(RwLock::new(Vector2 { y: 0, x: 0 })),
             processes: Arc::new(Mutex::new(Vec::new())),
             futures: Arc::new(Mutex::new(Vec::new())),
         }
@@ -66,14 +80,33 @@ impl StateContainer {
 
 const csi_final_bytes: &str = r"@[\]^_`{|}~";
 
-async fn write(state_container: StateContainer, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+async fn write_input(state_container: StateContainer, data: &[u8], flush: bool) -> Result<(), Box<dyn std::error::Error>> {
     let active_process = state_container.get_state().get_active_process().await?;
     if let Some(active_process) = active_process {
         let process = active_process.lock().await;
         let mut stdin = process.stdin.lock().await;
         stdin.write(data).await?;
-        stdin.flush().await?;
+        if flush {
+            stdin.flush().await?;
+        }
     }
+
+    Ok(())
+}
+
+async fn write_output(state_container: StateContainer, data: &[u8], flush: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let stdout = state_container.get_state().stdout.clone();
+    let mut stdout = stdout.lock().await;
+    stdout.write(data).await?;
+    if flush {
+        stdout.flush().await?;   
+    }
+
+    Ok(())
+}
+
+async fn write_output_str(state_container: StateContainer, data: impl AsRef<str>, flush: bool) -> Result<(), Box<dyn std::error::Error>> {
+    write_output(state_container, data.as_ref().as_bytes(), flush).await?;
 
     Ok(())
 }
@@ -109,7 +142,7 @@ async fn handle_stdin(state_container: StateContainer) -> Result<(), Box<dyn std
             print!("[IN-CSI:{:?}]", String::from_utf8_lossy(&collected));
             let prefix = "\x1b[".as_bytes();
             let concat: Vec<u8> = prefix.iter().chain(collected.iter()).map(|e|e.to_owned()).collect();
-            write(state_container.clone(), &concat).await?;
+            write_input(state_container.clone(), &concat, true).await?;
 
             collected = Vec::new();
             continue;
@@ -128,7 +161,7 @@ async fn handle_stdin(state_container: StateContainer) -> Result<(), Box<dyn std
             std::process::exit(0);
         }
 
-        write(state_container.clone(), &buf[..n]).await?;
+        write_input(state_container.clone(), &buf[..n], true).await?;
     }
 }
 
@@ -162,7 +195,7 @@ async fn handle_process(state_container: StateContainer, process: Arc<Mutex<Proc
             is_csi = false;
             escape_distance = None;
             collected.push(byte);
-            print!("[CSI:{:?}]", String::from_utf8_lossy(&collected));
+            write_output_str(state_container.clone(), format!("[CSI:{:?}]", String::from_utf8_lossy(&collected)), true).await?;
             collected = Vec::new();
             continue;
         }
@@ -175,7 +208,7 @@ async fn handle_process(state_container: StateContainer, process: Arc<Mutex<Proc
         const BEL: u8 = 0x07;
         if byte == ST_C1 || (escape_distance == Some(1) && byte == b'\\') || byte == BEL {
             is_osc = false;
-            print!("[OSC:{:?}]", String::from_utf8_lossy(&collected));
+            write_output_str(state_container.clone(), format!("[OSC:{:?}]", String::from_utf8_lossy(&collected)), true).await?;
             collected = Vec::new();
             continue;
         }
@@ -195,7 +228,13 @@ async fn handle_process(state_container: StateContainer, process: Arc<Mutex<Proc
         }
         
     
-        state_container.get_state().stdout.lock().await.write(&buf[..n]).await?;
+        {
+            let state = state_container.get_state();
+            let mut stdout = state.stdout.lock().await;
+            stdout.write(&buf[..n]).await?;
+            stdout.flush().await?;
+        }
+        
     }
 }
 
@@ -224,7 +263,7 @@ fn enable_raw_mode() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn draw_main_menu(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
+async fn init_screen(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
     enable_raw_mode()?;
 
     let stdin = state_container.get_state().stdin.clone();
@@ -241,57 +280,40 @@ async fn draw_main_menu(state_container: StateContainer) -> Result<(), Box<dyn s
     let size = state_container.get_state().size.clone();
     {
         let mut size = size.write().await;
-        size.height = height as usize;
-        size.width = width as usize;
+        size.y = height as usize;
+        size.x = width as usize;
     }
 
     Ok(())
 }
 
-async fn spawn_process(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
-    let program = "cmd";
-    let program = which(program)?.to_string_lossy().to_string();
-    let result = spawn_interactive_process(&program).await?;
-    let process = Process {
-        stdin: Arc::new(Mutex::new(result.stdin)),
-        stdout: Arc::new(Mutex::new(result.stdout)),
-    };
-
-    let processes = state_container.get_state().processes.clone();
-    {
-        let mut processes = processes.lock().await;
-        let process = Arc::new(Mutex::new(process));
-        let future = {
-            let process = process.clone();
-            let state_container = state_container.clone();
-            async move {
-                let result = handle_process(state_container, process).await;
-                if let Err(e) = result {
-                    eprintln!("Error: {:?}", e);
-                }
-            }
-        };
-        
-        processes.push(process);
-        {
-            let futures = state_container.get_state().futures.clone();
-            let mut futures = futures.lock().await;
-            futures.push(Box::pin(future));
-        }
-    }
-
+async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
+    tokio::time::sleep(Duration::from_millis(10)).await;
     Ok(())
 }
+
+async fn draw_loop(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
+    loop {
+        draw(state_container.clone()).await?;
+    }
+}
+
+
 
 async fn run(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
-    draw_main_menu(state_container.clone()).await?;
-    spawn_process(state_container.clone()).await?;
+    init_screen(state_container.clone()).await?;
+    spawn_process(state_container.clone(), Vector2 {
+        x: 40,
+        y: 25
+    }).await?;
     let results = tokio::join!(
         handle_stdin(state_container.clone()),
         handle_stdout(state_container.clone()),
+        draw_loop(state_container.clone())
     );
     results.0?;
     results.1?;
+    results.2?;
 
     Ok(())
 }

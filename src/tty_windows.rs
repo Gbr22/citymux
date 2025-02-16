@@ -1,8 +1,8 @@
 use std::alloc::{alloc, Layout};
+use std::collections::HashMap;
 use std::os::raw::c_void;
 use std::{mem, os::windows::io::FromRawHandle, ptr};
 
-use tokio::io::AsyncWriteExt;
 use windows::core::HRESULT;
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Console::ClosePseudoConsole;
@@ -17,8 +17,9 @@ use windows::Win32::{self, Foundation::HANDLE, Security::SECURITY_ATTRIBUTES, Sy
 use windows::Win32::System::Threading::CreateProcessW;
 
 use crate::process::{ProcessData, ProcessDataDyn};
+use crate::Vector2;
 
-pub async fn spawn_interactive_process(program: &str) -> windows::core::Result<ProcessData> {
+pub async fn spawn_interactive_process(program: &str, env: HashMap<String, String>, size: Vector2) -> windows::core::Result<ProcessData> {
     unsafe {
         let mut input_read: HANDLE = HANDLE::default();
         let mut input_write: HANDLE = HANDLE::default();
@@ -36,8 +37,8 @@ pub async fn spawn_interactive_process(program: &str) -> windows::core::Result<P
         CreatePipe(&mut output_read, &mut output_write, Some(&mut security_attributes), 0)?;
 
         let mut tty_size = Win32::System::Console::COORD::default();
-        tty_size.X = 80;
-        tty_size.Y = 24;
+        tty_size.X = size.x as i16;
+        tty_size.Y = size.y as i16;
         let hpcon = CreatePseudoConsole(tty_size, input_read, output_write, 0)?;
 
         let mut attribute_list_size: usize = 0;
