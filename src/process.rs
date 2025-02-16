@@ -3,7 +3,7 @@ use tokio::{io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt}};
 
 use tokio::sync::Mutex;
 
-use crate::{canvas::{self, CanvasCommand}, encoding::{CsiSequence, CSI_FINAL_BYTES}, Process, StateContainer};
+use crate::{canvas::{self, TerminalCommand}, encoding::{CsiSequence, OscSequence, CSI_FINAL_BYTES}, Process, StateContainer};
 
 pub struct ProcessData {
     pub stdin: Box<dyn tokio::io::AsyncWrite + Unpin + Send + Sync>,
@@ -47,8 +47,8 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
             collected.push(byte);
             tracing::debug!("[OUT-CSI:{:?}]", String::from_utf8_lossy(&collected));
             let process = process.lock().await;
-            let command = CanvasCommand::Csi(CsiSequence::new(collected));
-            let mut canvas = process.canvas.lock().await;
+            let command = TerminalCommand::Csi(CsiSequence::new(collected));
+            let mut canvas = process.terminal.lock().await;
             canvas.execute_command(command);
             collected = Vec::new();
             continue;
@@ -62,12 +62,16 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
         const BEL: u8 = 0x07;
         if byte == ST_C1 || (escape_distance == Some(1) && byte == b'\\') || byte == BEL {
             is_osc = false;
-            //write_output_str(state_container.clone(), format!("[OSC:{:?}]", String::from_utf8_lossy(&collected)), true).await?;
+            tracing::debug!("[OUT-OSC:{:?}]", String::from_utf8_lossy(&collected));
+            let process = process.lock().await;
+            let command = TerminalCommand::Osc(OscSequence::new(collected));
+            let mut canvas = process.terminal.lock().await;
+            canvas.execute_command(command);
             collected = Vec::new();
             continue;
         }
         
-        if is_osc {
+        if is_osc && byte != 0x1b {
             collected.push(byte);
             continue;
         }
@@ -82,10 +86,10 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
         }
     
         {
-            tracing::debug!("[OUT:{:?}:{:?}]", byte, byte as char);
+            //tracing::debug!("[OUT:{:?}:{:?}]", byte, byte as char);
             let process = process.lock().await;
-            let command = CanvasCommand::String(format!("{}",byte as char));
-            let mut canvas = process.canvas.lock().await;
+            let command = TerminalCommand::String(format!("{}",byte as char));
+            let mut canvas = process.terminal.lock().await;
             canvas.execute_command(command);
         }
     }

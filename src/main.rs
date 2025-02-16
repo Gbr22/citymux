@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs::{self, remove_file, OpenOptions}, future::Future, pin::Pin, process::Stdio, sync::Arc, time::Duration};
 
-use canvas::{Canvas, Vector2};
+use canvas::{Terminal, Vector2};
 use crossterm_winapi::{ConsoleMode, Handle};
 use draw::draw_loop;
 use encoding::CSI_FINAL_BYTES;
@@ -21,7 +21,7 @@ mod draw;
 struct Process {
     pub stdout: Arc<Mutex<dyn AsyncRead + Unpin + Send + Sync>>,
     pub stdin: Arc<Mutex<dyn AsyncWrite + Unpin + Send + Sync>>,
-    pub canvas: Arc<Mutex<Canvas>>,
+    pub terminal: Arc<Mutex<Terminal>>,
 }
 
 struct State {
@@ -30,6 +30,7 @@ struct State {
     pub size: Arc<RwLock<Vector2>>,
     pub processes: Arc<Mutex<Vec<Arc<Mutex<Process>>>>>,
     pub futures: Arc<Mutex<Vec<Pin<Box<dyn std::future::Future<Output = ()>>>>>>,
+    pub last_canvas: Arc<Mutex<canvas::Canvas>>,
 }
 
 impl State {
@@ -50,6 +51,7 @@ impl State {
             size: Arc::new(RwLock::new(Vector2::default())),
             processes: Arc::new(Mutex::new(Vec::new())),
             futures: Arc::new(Mutex::new(Vec::new())),
+            last_canvas: Arc::new(Mutex::new(canvas::Canvas::new(Vector2::new(0, 0)))),
         }
     }
 }
@@ -182,8 +184,8 @@ async fn init_screen(state_container: StateContainer) -> Result<(), Box<dyn std:
     let size = state_container.get_state().size.clone();
     {
         let mut size = size.write().await;
-        size.y = height as usize;
-        size.x = width as usize;
+        size.y = height as isize;
+        size.x = width as isize;
     }
 
     Ok(())
@@ -192,7 +194,7 @@ async fn init_screen(state_container: StateContainer) -> Result<(), Box<dyn std:
 async fn run(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
     init_screen(state_container.clone()).await?;
     spawn_process(state_container.clone(), Vector2 {
-        x: 60,
+        x: 61,
         y: 20
     }).await?;
     let results = tokio::join!(

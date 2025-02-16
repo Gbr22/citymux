@@ -3,12 +3,12 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWrite
 use crate::canvas::Vector2;
 
 pub struct MoveCursor {
-    y: usize,
-    x: usize,
+    y: isize,
+    x: isize,
 }
 
 impl MoveCursor {
-    pub fn new(y: usize, x: usize) -> Self {
+    pub fn new(y: isize, x: isize) -> Self {
         MoveCursor { y, x }
     }
 }
@@ -135,6 +135,36 @@ impl Into<Vec<u8>> for EraseInDisplay {
     fn into(self) -> Vec<u8> {
         let string = format!("\x1b[{}J", self.value);
         string.as_bytes().to_owned()
+    }
+}
+
+pub struct SetCursorVisibility {
+    is_visible: bool,
+}
+
+impl SetCursorVisibility {
+    pub fn new(value: bool) -> Self {
+        SetCursorVisibility {
+            is_visible: value
+        }
+    }
+}
+
+impl From<bool> for SetCursorVisibility {
+    fn from(kind: bool) -> Self {
+        SetCursorVisibility {
+            is_visible: kind
+        }
+    }
+}
+
+impl Into<&[u8]> for SetCursorVisibility {
+    fn into(self) -> &'static [u8] {
+        if self.is_visible {
+            "\x1b[?25h".as_bytes()
+        } else {
+            "\x1b[?25l".as_bytes()
+        }
     }
 }
 
