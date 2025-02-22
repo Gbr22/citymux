@@ -14,8 +14,8 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
         size,
         Cell::new_styled(
             "#",Style::default()
-            .with_background_color(Color::new_one_byte(6))
-            .with_foreground_color(Color::new_one_byte(2))
+            .with_background_color(Color::default())
+            .with_foreground_color(Color::new_one_byte(8+7))
         )
     );
     let mut cursor_position = Vector2::new(0, 0);
@@ -35,11 +35,23 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
                 tracing::debug!("Resized terminal to {:?}", canvas.size());
             }
         }
-        let offset = Vector2::new(0,1);
+        let offset = Vector2::new(1,1);
         let title = format!("[{}]", title);
-        let outline = Canvas::new_filled(canvas.size()+Vector2::new(2, 2), Cell::new("*"));
+        let outline = Canvas::new_filled(
+            canvas.size()+Vector2::new(2, 2),
+            Cell::new_styled("*",Style::default()
+                .with_background_color(Color::new_rgb(140, 153, 216))
+                .with_foreground_color(Color::new_rgb(153, 100, 193))
+            )
+        );
         new_canvas.put_canvas(&outline, offset - Vector2::new(1, 1));
-        let title = title.into();
+        let mut title: Canvas = title.into();
+        title.iter_mut_cells().for_each(|cell| {
+            cell.style = Style::default()
+                .with_background_color(Color::new_rgb(153, 100, 193))
+                .with_foreground_color(Color::new_one_byte(8+7));
+        });
+        
         new_canvas.put_canvas(&title, Vector2::new(outline.size().x / 2 - title.size().x / 2, 0));
         new_canvas.put_canvas(canvas, offset);
         cursor_position = terminal.cursor + offset;

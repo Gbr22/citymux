@@ -50,8 +50,14 @@ impl PartialEq for Vector2 {
 
 #[derive(Clone, Debug)]
 pub struct Canvas {
-    pub cells: Vec<Cell>,
+    cells: Vec<Cell>,
     size: Vector2,
+}
+
+impl Canvas {
+    pub fn iter_mut_cells(&mut self) -> std::slice::IterMut<'_, Cell> {
+        self.cells.as_mut_slice().iter_mut()
+    }
 }
 
 impl Canvas {
@@ -221,6 +227,11 @@ impl Color {
             color: ColorEnum::OneByte(byte),
         }
     }
+    pub fn new_rgb(r: u8, g: u8, b: u8) -> Self {
+        Color {
+            color: ColorEnum::Rgb(r, g, b),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -265,12 +276,14 @@ impl Color {
                     bytes.extend((60 + prefix + value - 8).to_string().as_bytes());
                 }
                 else {
-                    bytes.extend("38;5;".as_bytes());
+                    bytes.extend((prefix+8).to_string().as_bytes());
+                    bytes.extend(";5;".as_bytes());
                     bytes.extend(value.to_string().as_bytes());
                 }
             },
             ColorEnum::Rgb(r, g, b) => {
-                bytes.extend("\x1b[38;2;".as_bytes());
+                bytes.extend((prefix+8).to_string().as_bytes());
+                bytes.extend(";2;".as_bytes());
                 bytes.extend(r.to_string().as_bytes());
                 bytes.extend(";".as_bytes());
                 bytes.extend(g.to_string().as_bytes());
@@ -504,6 +517,32 @@ impl TerminalInfo {
                     let first = arguments[0];
                     let mut style = self.current_style.clone();
                     let is_normal_options = (0..=107).contains(&first) && first != 38 && first != 48 && first != 58;
+                    let first = arguments.first().unwrap_or(&0).to_owned();
+                    if first == 38 || first == 48 {
+                        let second = arguments.get(1).unwrap_or(&0).to_owned();
+                        let color = if second == 5 {
+                            let color = arguments.get(2).unwrap_or(&0).to_owned();
+                            Color::new_one_byte(color.try_into().unwrap_or(0))
+                        }
+                        else if second == 2 {
+                            let r = arguments.get(2).unwrap_or(&0).to_owned().try_into().unwrap_or(0);
+                            let g = arguments.get(3).unwrap_or(&0).to_owned().try_into().unwrap_or(0);
+                            let b = arguments.get(4).unwrap_or(&0).to_owned().try_into().unwrap_or(0);
+
+                            Color::new_rgb(r, g, b)
+                        }
+                        else {
+                            tracing::debug!("Unknown color, second argument: {:?}", second);
+                            Color::default()
+                        };
+                        if first == 38 {
+                            style = style.with_foreground_color(color);
+                        } else if first == 48 {
+                            style = style.with_background_color(color);
+                        }
+                        self.current_style = style;
+                        return;
+                    }
                     if is_normal_options {
                         for argument in arguments {
                             if argument == 0 {
