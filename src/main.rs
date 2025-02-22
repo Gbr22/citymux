@@ -110,14 +110,13 @@ async fn handle_stdin(state_container: StateContainer) -> Result<(), Box<dyn std
         let timeout_result = timeout(Duration::from_millis(100), stdin.read(&mut buf)).await;
         let Ok(result) = timeout_result else {
             if escape_distance == Some(0) {
-                let data = "\x1b[27u".as_bytes();
+                let data = "\x1b".as_bytes();
                 write_input(state_container.clone(), data, true).await?;
-                tracing::debug!("[IN:ESC]");
                 escape_distance = None;
             }
             continue;
         };
-        let n = result?;
+        let n: usize = result?;
         if n == 0 {
             return Ok(());
         }
