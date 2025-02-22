@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tokio::{io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt}};
+use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 
 use tokio::sync::Mutex;
 
@@ -24,18 +24,33 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
     let mut is_utf8 = false;
     let mut number_of_bytes_to_read: usize = 0;
     let mut collected = Vec::new();
+    let mut buffer = vec![0; 2048];
+    let mut read_buf = ReadBuf::new(&mut buffer);
+    let mut filled_buf_option: Option<&[u8]> = None;
     loop {
         let stdout = {
             let process = process.lock().await;
             process.stdout.clone()
         };
         let mut stdout = stdout.lock().await;
-        let mut buf = [0; 1];
-        let n = stdout.read(&mut buf).await?;
-        if n == 0 {
-            return Ok(());
+        if filled_buf_option.is_none() {
+            read_buf = ReadBuf::new(&mut buffer);
+            let n = stdout.read_buf(&mut read_buf).await?;
+            if n == 0 {
+                return Ok(());
+            }
+            filled_buf_option = Some(read_buf.filled());
+            continue;
         }
-        let byte = buf[0];
+        let Some(filled_buf) = filled_buf_option else {
+            continue;
+        };
+        let Some(byte) = filled_buf.first() else {
+            filled_buf_option = None;
+            continue;
+        };
+        filled_buf_option = Some(&filled_buf[1..]);
+        let byte = *byte;
         if let Some(escape_distance_value) = escape_distance {
             escape_distance = Some(escape_distance_value + 1);
         }
