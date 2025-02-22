@@ -21,6 +21,8 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
     let mut escape_distance: Option<usize> = None;
     let mut is_csi = false;
     let mut is_osc = false;
+    let mut is_utf8 = false;
+    let mut number_of_bytes_to_read: usize = 0;
     let mut collected = Vec::new();
     loop {
         let stdout = {
@@ -47,7 +49,6 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
             is_csi = false;
             escape_distance = None;
             collected.push(byte);
-            tracing::debug!("[OUT-CSI:{:?}]", String::from_utf8_lossy(&collected));
             let process = process.lock().await;
             let command = TerminalCommand::Csi(CsiSequence::new(collected));
             let mut canvas = process.terminal_info.lock().await;
@@ -64,7 +65,6 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
         const BEL: u8 = 0x07;
         if byte == ST_C1 || (escape_distance == Some(1) && byte == b'\\') || byte == BEL {
             is_osc = false;
-            tracing::debug!("[OUT-OSC:{:?}]", String::from_utf8_lossy(&collected));
             let process = process.lock().await;
             let command = TerminalCommand::Osc(OscSequence::new(collected));
             let mut canvas = process.terminal_info.lock().await;
@@ -87,8 +87,38 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
             continue;
         }
     
+        if byte & 0b1111_0000 == 0b1111_0000 {
+            is_utf8 = true;
+            number_of_bytes_to_read = 3;
+            collected.push(byte);
+            continue;
+        }
+        if byte & 0b1110_0000 == 0b1110_0000 {
+            is_utf8 = true;
+            number_of_bytes_to_read = 2;
+            collected.push(byte);
+            continue;
+        }
+        if byte & 0b1100_0000 == 0b1100_0000 {
+            is_utf8 = true;
+            number_of_bytes_to_read = 1;
+            collected.push(byte);
+            continue;
+        }
+        if is_utf8 {
+            number_of_bytes_to_read -= 1;
+            collected.push(byte);
+            if number_of_bytes_to_read <= 0 {
+                is_utf8 = false;
+                let process = process.lock().await;
+                let command = TerminalCommand::String(String::from_utf8_lossy(&collected).to_string());
+                let mut canvas = process.terminal_info.lock().await;
+                canvas.execute_command(command);
+                collected.clear();
+            }
+            continue;
+        }
         {
-            tracing::debug!("[OUT:{:?}:{:?}]", byte, byte as char);
             let process = process.lock().await;
             let command = TerminalCommand::String(format!("{}",byte as char));
             let mut canvas = process.terminal_info.lock().await;

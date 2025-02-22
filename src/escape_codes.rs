@@ -1,6 +1,6 @@
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
-use crate::canvas::Vector2;
+use crate::canvas::{Style, Vector2};
 
 pub struct MoveCursor {
     y: isize,
@@ -165,6 +165,22 @@ impl Into<&[u8]> for SetCursorVisibility {
         } else {
             "\x1b[?25l".as_bytes()
         }
+    }
+}
+
+pub struct ResetStyle {
+    _private: (),
+}
+impl Default for ResetStyle {
+    fn default() -> Self {
+        ResetStyle {
+            _private: ()
+        }
+    }
+}
+impl Into<&[u8]> for ResetStyle {
+    fn into(self) -> &'static [u8] {
+        "\x1b[0m".as_bytes()
     }
 }
 

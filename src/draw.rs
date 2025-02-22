@@ -1,8 +1,6 @@
-use std::time::Duration;
-
 use tokio::io::AsyncWriteExt;
 
-use crate::{canvas::{Canvas, Cell, Vector2}, escape_codes::{EraseInDisplay, MoveCursor, SetCursorVisibility}, StateContainer};
+use crate::{canvas::{Canvas, Cell, Color, Style, Vector2}, escape_codes::{MoveCursor, ResetStyle}, StateContainer};
 
 pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
     let stdout = state_container.get_state().stdout.clone();
@@ -10,7 +8,14 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
 
     let programs = state_container.get_state().processes.lock().await.clone();
     let size: Vector2 = state_container.get_state().size.read().await.clone();
-    let mut new_canvas = Canvas::new_filled(size, Cell::new("#"));
+    let mut new_canvas = Canvas::new_filled(
+        size,
+        Cell::new_styled(
+            "#",Style::default()
+            .with_background_color(Color::new_one_byte(6))
+            .with_foreground_color(Color::new_one_byte(2))
+        )
+    );
     let mut cursor_position = Vector2::new(0, 0);
 
     for program in programs.iter() {
@@ -23,6 +28,7 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
             let mut terminal = process.terminal.lock().await;
             if terminal.size() != canvas.size() {
                 terminal.set_size(canvas.size())?;
+                tracing::debug!("Resized terminal to {:?}", canvas.size());
             }
         }
         let offset = Vector2::new(0,1);
@@ -39,15 +45,25 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
     {
         let state = state_container.get_state();
         let mut last_canvas = state.last_canvas.lock().await;
+        let mut last_style = Style::default();
+        
         if last_canvas.ne(&new_canvas) {
             for y in 0..new_canvas.size().y {
                 to_write.extend(&Into::<Vec<u8>>::into(MoveCursor::new(y, 0)));
                 for x in 0..new_canvas.size().x {
-                    let cell = new_canvas.get_cell(x, y);
+                    let cell = new_canvas.get_cell((x, y));
+
+                    if cell.style != last_style {
+                        to_write.extend(Into::<&[u8]>::into(ResetStyle::default()));
+                        to_write.extend(&Into::<Vec<u8>>::into(cell.style.clone()));
+                        last_style = cell.style.clone();
+                    }
+
                     to_write.extend(cell.value.as_bytes());
                 }
                 to_write.extend("\r".as_bytes());
             }
+            to_write.extend(Into::<&[u8]>::into(ResetStyle::default()));
             *last_canvas = new_canvas;
         }
     }
