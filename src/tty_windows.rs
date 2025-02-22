@@ -16,7 +16,7 @@ use windows::Win32::System::Threading::STARTUPINFOW;
 use windows::Win32::{self, Foundation::HANDLE, Security::SECURITY_ATTRIBUTES, System::{Console::{CreatePseudoConsole, HPCON}, Pipes::CreatePipe}};
 use windows::Win32::System::Threading::CreateProcessW;
 
-use crate::process::{ProcessData, ProcessDataDyn};
+use crate::process::{ProcessData, TerminalLike};
 use crate::Vector2;
 
 pub async fn spawn_interactive_process(program: &str, env: HashMap<String, String>, size: Vector2) -> windows::core::Result<ProcessData> {
@@ -87,27 +87,29 @@ pub async fn spawn_interactive_process(program: &str, env: HashMap<String, Strin
         let reader = tokio::fs::File::from_std(std::fs::File::from_raw_handle(output_read.0));
         let writer = tokio::fs::File::from_std(std::fs::File::from_raw_handle(input_write.0));
 
-        Ok(ProcessData { stdin: Box::new(writer), stdout: Box::new(reader), dyn_data: Box::new(WinProcessData {
+        Ok(ProcessData { stdin: Box::new(writer), stdout: Box::new(reader), terminal: Box::new(WinPTY {
             hpc: hpcon,
             input_read,
             input_write,
             output_read,
             output_write,
             proc_info,
+            size,
         }) })
     }
 }
 
-struct WinProcessData {
+struct WinPTY {
     hpc: HPCON,
     input_read: HANDLE,
     input_write: HANDLE,
     output_read: HANDLE,
     output_write: HANDLE,
     proc_info: PROCESS_INFORMATION,
+    size: Vector2,
 }
 
-impl ProcessDataDyn for WinProcessData {
+impl TerminalLike for WinPTY {
     fn release(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         unsafe {
             ClosePseudoConsole(self.hpc);
@@ -120,5 +122,23 @@ impl ProcessDataDyn for WinProcessData {
         }
 
         Ok(())
+    }
+    fn set_size(&mut self, size: crate::canvas::Vector2) -> Result<(), Box<dyn std::error::Error>> {
+        unsafe {
+            let mut tty_size = Win32::System::Console::COORD::default();
+            tty_size.X = size.x as i16;
+            tty_size.Y = size.y as i16;
+            let result = windows::Win32::System::Console::ResizePseudoConsole(self.hpc, tty_size);
+            if let Err(e) = result {
+                tracing::error!("Error resizing pty: {:?}", e);
+            }
+            self.size = size;
+        }
+
+        Ok(())
+    }
+    
+    fn size(&self) -> crate::canvas::Vector2 {
+        self.size
     }
 }

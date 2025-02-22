@@ -8,11 +8,13 @@ use crate::{canvas::{self, TerminalCommand}, encoding::{CsiSequence, OscSequence
 pub struct ProcessData {
     pub stdin: Box<dyn tokio::io::AsyncWrite + Unpin + Send + Sync>,
     pub stdout: Box<dyn tokio::io::AsyncRead + Unpin + Send + Sync>,
-    pub dyn_data: Box<dyn ProcessDataDyn>,
+    pub terminal: Box<dyn TerminalLike>,
 }
 
-pub trait ProcessDataDyn {
+pub trait TerminalLike {
     fn release(&mut self) -> Result<(), Box<dyn std::error::Error>>;
+    fn set_size(&mut self, size: canvas::Vector2) -> Result<(), Box<dyn std::error::Error>>;
+    fn size(&self) -> canvas::Vector2;
 }
 
 pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<Process>>) -> Result<(), Box<dyn std::error::Error>> {
@@ -48,7 +50,7 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
             tracing::debug!("[OUT-CSI:{:?}]", String::from_utf8_lossy(&collected));
             let process = process.lock().await;
             let command = TerminalCommand::Csi(CsiSequence::new(collected));
-            let mut canvas = process.terminal.lock().await;
+            let mut canvas = process.terminal_info.lock().await;
             canvas.execute_command(command);
             collected = Vec::new();
             continue;
@@ -65,7 +67,7 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
             tracing::debug!("[OUT-OSC:{:?}]", String::from_utf8_lossy(&collected));
             let process = process.lock().await;
             let command = TerminalCommand::Osc(OscSequence::new(collected));
-            let mut canvas = process.terminal.lock().await;
+            let mut canvas = process.terminal_info.lock().await;
             canvas.execute_command(command);
             collected = Vec::new();
             continue;
@@ -86,10 +88,10 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
         }
     
         {
-            //tracing::debug!("[OUT:{:?}:{:?}]", byte, byte as char);
+            tracing::debug!("[OUT:{:?}:{:?}]", byte, byte as char);
             let process = process.lock().await;
             let command = TerminalCommand::String(format!("{}",byte as char));
-            let mut canvas = process.terminal.lock().await;
+            let mut canvas = process.terminal_info.lock().await;
             canvas.execute_command(command);
         }
     }

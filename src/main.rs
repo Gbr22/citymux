@@ -1,10 +1,12 @@
-use std::{collections::HashMap, fs::{self, remove_file, OpenOptions}, future::Future, pin::Pin, process::Stdio, sync::Arc, time::Duration};
+use std::{collections::HashMap, fs::{self, remove_file, OpenOptions}, future::Future, pin::Pin, process::Stdio, sync::{atomic::AtomicUsize, Arc}, time::Duration};
 
-use canvas::{Terminal, Vector2};
+use canvas::{Canvas, TerminalInfo, Vector2};
 use crossterm_winapi::{ConsoleMode, Handle};
 use draw::draw_loop;
 use encoding::CSI_FINAL_BYTES;
 use escape_codes::{get_cursor_position, DisableConcealMode, EnableComprehensiveKeyboardHandling, EnterAlternateScreenBuffer, MoveCursor, RequestCursorPosition};
+use process::TerminalLike;
+use span::{Node, NodeData};
 use spawn::spawn_process;
 use tokio::{io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Stdin}, sync::{futures, Mutex, RwLock}, task::JoinSet};
 use winapi::{shared::minwindef::DWORD, um::wincon::{ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT}};
@@ -17,11 +19,13 @@ mod encoding;
 mod tty;
 mod canvas;
 mod draw;
+mod span;
 
 struct Process {
     pub stdout: Arc<Mutex<dyn AsyncRead + Unpin + Send + Sync>>,
     pub stdin: Arc<Mutex<dyn AsyncWrite + Unpin + Send + Sync>>,
-    pub terminal: Arc<Mutex<Terminal>>,
+    pub terminal_info: Arc<Mutex<TerminalInfo>>,
+    pub terminal: Arc<Mutex<Box<dyn TerminalLike>>>,
 }
 
 struct State {
@@ -30,7 +34,10 @@ struct State {
     pub size: Arc<RwLock<Vector2>>,
     pub processes: Arc<Mutex<Vec<Arc<Mutex<Process>>>>>,
     pub futures: Arc<Mutex<Vec<Pin<Box<dyn std::future::Future<Output = ()>>>>>>,
-    pub last_canvas: Arc<Mutex<canvas::Canvas>>,
+    pub last_canvas: Arc<Mutex<Canvas>>,
+    pub root_node: Arc<Mutex<Node>>,
+    pub span_id_counter: AtomicUsize,
+    pub active_id: AtomicUsize,
 }
 
 impl State {
@@ -41,8 +48,6 @@ impl State {
     }
 }
 
-
-
 impl State {
     fn new(input: impl AsyncRead + Unpin + Send + Sync + 'static, output: impl AsyncWrite + Unpin + Send + Sync + 'static) -> Self {
         State {
@@ -51,7 +56,10 @@ impl State {
             size: Arc::new(RwLock::new(Vector2::default())),
             processes: Arc::new(Mutex::new(Vec::new())),
             futures: Arc::new(Mutex::new(Vec::new())),
-            last_canvas: Arc::new(Mutex::new(canvas::Canvas::new(Vector2::new(0, 0)))),
+            last_canvas: Arc::new(Mutex::new(Canvas::new(Vector2::new(0, 0)))),
+            root_node: Arc::new(Mutex::new(Node::new(0, NodeData::Void))),
+            span_id_counter: AtomicUsize::new(0),
+            active_id: AtomicUsize::new(0),
         }
     }
 }
@@ -180,20 +188,12 @@ async fn init_screen(state_container: StateContainer) -> Result<(), Box<dyn std:
     stdout.write(&Into::<Vec<u8>>::into(MoveCursor::new(0, 0))).await?;
     stdout.flush().await?;
 
-    let (width, height) = crossterm::terminal::size()?;
-    let size = state_container.get_state().size.clone();
-    {
-        let mut size = size.write().await;
-        size.y = height as isize;
-        size.x = width as isize;
-    }
-
     Ok(())
 }
 
 async fn run(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
     init_screen(state_container.clone()).await?;
-    spawn_process(state_container.clone(), Vector2 {
+    let process = spawn_process(state_container.clone(), Vector2 {
         x: 61,
         y: 20
     }).await?;

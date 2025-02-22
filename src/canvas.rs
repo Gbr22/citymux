@@ -44,7 +44,25 @@ impl PartialEq for Vector2 {
 
 pub struct Canvas {
     pub cells: Vec<Cell>,
-    pub size: Vector2,
+    size: Vector2,
+}
+
+impl Canvas {
+    pub fn size(&self) -> Vector2 {
+        self.size
+    }
+    pub fn set_size(&mut self, size: Vector2) {
+        let old_cells = self.cells.clone();
+        let old_size = self.size;
+        self.size = size;
+        self.cells = vec![Cell::default(); isize::abs(size.x * size.y) as usize];
+        for y in 0..isize::abs(size.y.min(old_size.y)) {
+            for x in 0..isize::abs(size.x.min(old_size.x)) {
+                let cell = old_cells[(y * old_size.x + x) as usize].clone();
+                self.set_cell(x, y, cell);
+            }
+        }
+    }
 }
 
 impl PartialEq for Canvas {
@@ -108,6 +126,7 @@ impl Canvas {
         }
         let index = y * self.size.x + x;
         if self.cells.len() <= index as usize {
+            tracing::debug!("Index out of bounds: {:?}, {}, {}, {}", cell, x, y, self.cells.len());
             return;
         }
     
@@ -115,15 +134,15 @@ impl Canvas {
     }
 }
 
-pub struct Terminal {
+pub struct TerminalInfo {
     pub title: String,
     pub canvas: Canvas,
     pub cursor: Vector2,
 }
 
-impl Terminal {
+impl TerminalInfo {
     pub fn new(size: Vector2) -> Self {
-        Terminal {
+        TerminalInfo {
             title: String::default(),
             canvas: Canvas::new(size),
             cursor: Vector2 { x: 0, y: 0 },
@@ -131,7 +150,7 @@ impl Terminal {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Color {}
 
 impl Default for Color {
@@ -146,7 +165,7 @@ impl PartialEq for Color {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Cell {
     pub value: String,
     pub color: Color,
@@ -182,13 +201,12 @@ pub enum TerminalCommand {
     Osc(OscSequence),
 }
 
-impl Terminal {
+impl TerminalInfo {
     pub fn set_cursor_y(&mut self, y: isize) {
         if y >= self.canvas.size.y {
             let mut diff = y - self.cursor.y;
             if diff > self.canvas.size.y {
                 diff = self.canvas.size.y;
-                return;
             }
             self.cursor.y = self.canvas.size.y-1;
             for y in 0..self.canvas.size.y-1 {
@@ -236,6 +254,7 @@ impl Terminal {
                             value: format!("{}", c),
                             color: Color::default(),
                         });
+
                         self.set_cursor_x(self.cursor.x + 1);
                     }
                 }
@@ -269,8 +288,8 @@ impl Terminal {
                     let substring = string.trim_end_matches("H");
                     let parts = substring.split(";");
                     let mut parts = parts.collect::<Vec<&str>>();
-                    let y = (parts.pop().unwrap_or("1").parse::<usize>().unwrap_or(1) as isize)-1;
                     let x = (parts.pop().unwrap_or("1").parse::<usize>().unwrap_or(1) as isize)-1;
+                    let y = (parts.pop().unwrap_or("1").parse::<usize>().unwrap_or(1) as isize)-1;
                     self.set_cursor_x(x);
                     self.set_cursor_y(y);
                     return;
