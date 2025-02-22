@@ -1,6 +1,8 @@
-use tokio::io::AsyncWriteExt;
+use std::sync::Arc;
 
-use crate::{canvas::{Canvas, Cell, Color, Style, Vector2}, escape_codes::{MoveCursor, ResetStyle}, StateContainer};
+use tokio::{io::AsyncWriteExt, sync::Mutex};
+
+use crate::{canvas::{Canvas, Cell, Color, Style, Vector2}, escape_codes::{MoveCursor, ResetStyle, SetCursorVisibility}, Process, StateContainer};
 
 pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
     let stdout = state_container.get_state().stdout.clone();
@@ -17,9 +19,11 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
         )
     );
     let mut cursor_position = Vector2::new(0, 0);
+    let mut active_process: Option<Arc<Mutex<Process>>> = None;
 
     for program in programs.iter() {
         let process = program.lock().await;
+        active_process = Some(program.clone());
         let mut terminal = process.terminal_info.lock().await;
         let title = terminal.title.clone();
         let canvas = &mut terminal.canvas;
@@ -42,6 +46,8 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
     }
 
     let mut to_write: Vec<u8> = Vec::new();
+    to_write.extend(Into::<&[u8]>::into(ResetStyle::default()));
+    to_write.extend(Into::<&[u8]>::into(SetCursorVisibility::new(false)));
     {
         let state = state_container.get_state();
         let mut last_canvas = state.last_canvas.lock().await;
@@ -68,7 +74,16 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
         }
     }
 
-    to_write.extend(&Into::<Vec<u8>>::into(MoveCursor::from(cursor_position)));
+    {
+        if let Some(process) = active_process {
+            let process = process.lock().await;
+            let terminal = process.terminal_info.lock().await;
+            if terminal.is_cursor_visible {
+                to_write.extend(&Into::<Vec<u8>>::into(MoveCursor::from(cursor_position)));
+                to_write.extend(Into::<&[u8]>::into(SetCursorVisibility::new(true)));
+            }
+        }
+    }
     stdout.write(&to_write).await?;
     stdout.flush().await?;
 

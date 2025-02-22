@@ -8,7 +8,7 @@ use escape_codes::{get_cursor_position, DisableConcealMode, EnableComprehensiveK
 use process::TerminalLike;
 use span::{Node, NodeData};
 use spawn::spawn_process;
-use tokio::{io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Stdin}, sync::{futures, Mutex, RwLock}, task::JoinSet};
+use tokio::{io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Stdin}, select, sync::{futures, Mutex, RwLock}, task::JoinSet, time::{timeout, Instant}};
 use winapi::{shared::minwindef::DWORD, um::wincon::{ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT}};
 
 mod escape_codes;
@@ -106,7 +106,18 @@ async fn handle_stdin(state_container: StateContainer) -> Result<(), Box<dyn std
         let mut stdin = stdin.lock().await;
 
         let mut buf = [0; 1];
-        let n = stdin.read(&mut buf).await?;
+
+        let timeout_result = timeout(Duration::from_millis(100), stdin.read(&mut buf)).await;
+        let Ok(result) = timeout_result else {
+            if escape_distance == Some(0) {
+                let data = "\x1b[27u".as_bytes();
+                write_input(state_container.clone(), data, true).await?;
+                tracing::debug!("[IN:ESC]");
+                escape_distance = None;
+            }
+            continue;
+        };
+        let n = result?;
         if n == 0 {
             return Ok(());
         }
@@ -141,7 +152,7 @@ async fn handle_stdin(state_container: StateContainer) -> Result<(), Box<dyn std
             continue;
         }
 
-        if byte == b'q' {
+        if byte == b'q' && escape_distance == Some(1) {
             std::process::exit(0);
         }
 

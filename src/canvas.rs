@@ -153,6 +153,8 @@ pub struct TerminalInfo {
     pub cursor: Vector2,
     pub current_style: Style,
     pub pending_wrap_state: bool,
+    pub is_cursor_visible: bool,
+    pub bracketed_paste_mode: bool,
 }
 
 impl TerminalInfo {
@@ -163,6 +165,8 @@ impl TerminalInfo {
             cursor: Vector2 { x: 0, y: 0 },
             current_style: Style::default(),
             pending_wrap_state: false,
+            is_cursor_visible: true,
+            bracketed_paste_mode: true,
         }
     }
 }
@@ -473,19 +477,19 @@ impl TerminalInfo {
                     return;
                 }
                 if string == "?2004l" {
-                    // Disable bracketed paste mode
+                    self.bracketed_paste_mode = false;
                     return;
                 }
                 if string == "?2004h" {
-                    // Enable bracketed paste mode
+                    self.bracketed_paste_mode = true;
                     return;
                 }
                 if string == "?25l" {
-                    // Hide cursor
+                    self.is_cursor_visible = false;
                     return;
                 }
                 if string == "?25h" {
-                    // Show cursor
+                    self.is_cursor_visible = true;
                     return;
                 }
                 if string == "4l" {
