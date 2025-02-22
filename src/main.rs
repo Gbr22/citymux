@@ -134,12 +134,33 @@ async fn handle_stdin(state_container: StateContainer) -> Result<(), Box<dyn std
             is_csi = false;
             escape_distance = None;
             collected.push(byte);
-            tracing::debug!("[IN-CSI:{:?}]", String::from_utf8_lossy(&collected));
+            let collected_move = collected;
+            collected = Vec::new();
+            let collected = collected_move;
+
+
+            let string = String::from_utf8_lossy(&collected).to_string();
+            let first_byte = string.as_bytes().first().unwrap_or(&0).to_owned();
+            let is_application_key_mode_enabled = {
+                let process = state_container.get_state().get_active_process().await?;
+                let Some(process) = process else {
+                    continue;
+                };
+                let process = process.lock().await;
+                let terminal_info = process.terminal_info.lock().await;
+                
+                terminal_info.is_application_key_mode_enabled
+            };
+            if is_application_key_mode_enabled {
+                if "ABCDHF".as_bytes().contains(&first_byte) {
+                    let new_string = format!("\x1bO{}", first_byte as char);
+                    write_input(state_container.clone(), new_string.as_bytes(), true).await?;
+                    continue;
+                }
+            }
             let prefix = "\x1b[".as_bytes();
             let concat: Vec<u8> = prefix.iter().chain(collected.iter()).map(|e|e.to_owned()).collect();
             write_input(state_container.clone(), &concat, true).await?;
-
-            collected = Vec::new();
             continue;
         }
         if is_csi {

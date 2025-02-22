@@ -158,9 +158,10 @@ pub struct TerminalInfo {
     pub canvas: Canvas,
     pub cursor: Vector2,
     pub current_style: Style,
-    pub pending_wrap_state: bool,
+    pub is_wrap_state_pending: bool,
     pub is_cursor_visible: bool,
-    pub bracketed_paste_mode: bool,
+    pub is_bracketed_paste_mode_enabled: bool,
+    pub is_application_key_mode_enabled: bool,
 }
 
 impl TerminalInfo {
@@ -170,9 +171,10 @@ impl TerminalInfo {
             canvas: Canvas::new(size),
             cursor: Vector2 { x: 0, y: 0 },
             current_style: Style::default(),
-            pending_wrap_state: false,
+            is_wrap_state_pending: false,
             is_cursor_visible: true,
-            bracketed_paste_mode: true,
+            is_bracketed_paste_mode_enabled: true,
+            is_application_key_mode_enabled: false,
         }
     }
 }
@@ -386,26 +388,26 @@ impl TerminalInfo {
             self.cursor.x = 0;
             self.set_cursor_y_wrap(self.cursor.y + 1);
         }
-        self.pending_wrap_state = false;
+        self.is_wrap_state_pending = false;
     }
     pub fn set_cursor_x_pending_wrap(&mut self, x: isize) {
         if x >= self.canvas.size.x {
             self.set_cursor_x_no_wrap(self.canvas.size.x-1);
-            self.pending_wrap_state = true;
+            self.is_wrap_state_pending = true;
         } else {
             self.cursor.x = x;
-            self.pending_wrap_state = false;
+            self.is_wrap_state_pending = false;
         }
     }
     pub fn set_cursor_x_no_wrap(&mut self, x: isize) {
         let x = isize::min(x, self.canvas.size.x-1);
         self.cursor.x = x;
-        self.pending_wrap_state = false;
+        self.is_wrap_state_pending = false;
     }
     pub fn set_cursor_y_no_wrap(&mut self, y: isize) {
         let y = isize::min(y, self.canvas.size.y-1);
         self.cursor.y = y;
-        self.pending_wrap_state = false;
+        self.is_wrap_state_pending = false;
     }
     pub fn execute_command(&mut self, command: TerminalCommand) {
         match command {
@@ -423,10 +425,10 @@ impl TerminalInfo {
                         self.canvas.set_cell(self.cursor, Cell::empty_styled(self.current_style.clone()));
                     },
                     _ => {
-                        if self.pending_wrap_state {
+                        if self.is_wrap_state_pending {
                             self.set_cursor_x_wrap(0);
                             self.set_cursor_y_wrap(self.cursor.y + 1);
-                            self.pending_wrap_state = false;
+                            self.is_wrap_state_pending = false;
                         }
                         self.canvas.set_cell(
                             self.cursor,
@@ -438,7 +440,8 @@ impl TerminalInfo {
             }
             TerminalCommand::Csi(csi_sequence) => {
                 let string = csi_sequence.content_as_string();
-                if "ABCD".as_bytes().contains(&string.as_bytes()[string.len()-1]) {
+                let last_char = string.as_bytes().last().unwrap_or(&0).to_owned();
+                if "ABCD".as_bytes().contains(&last_char) {
                     let number = string[0..string.len()-1].parse::<usize>();
                     if let Ok(number) = number {
                         let number = number as isize;
@@ -490,11 +493,11 @@ impl TerminalInfo {
                     return;
                 }
                 if string == "?2004l" {
-                    self.bracketed_paste_mode = false;
+                    self.is_bracketed_paste_mode_enabled = false;
                     return;
                 }
                 if string == "?2004h" {
-                    self.bracketed_paste_mode = true;
+                    self.is_bracketed_paste_mode_enabled = true;
                     return;
                 }
                 if string == "?25l" {
@@ -503,6 +506,14 @@ impl TerminalInfo {
                 }
                 if string == "?25h" {
                     self.is_cursor_visible = true;
+                    return;
+                }
+                if string == "?1h" {
+                    self.is_application_key_mode_enabled = true;
+                    return;
+                }
+                if string == "?1l" {
+                    self.is_application_key_mode_enabled = false;
                     return;
                 }
                 if string == "4l" {
