@@ -10,6 +10,12 @@ pub struct Vector2 {
     pub y: isize,
 }
 
+#[derive(Clone, Copy, Default, Debug)]
+pub struct Rect {
+    pub position: Vector2,
+    pub size: Vector2,
+}
+
 impl From<(isize, isize)> for Vector2 {
     fn from(value: (isize, isize)) -> Self {
         Vector2 { x: value.0, y: value.1 }
@@ -92,6 +98,9 @@ impl Canvas {
         self.size
     }
     pub fn set_size(&mut self, size: Vector2) {
+        if self.size == size {
+            return;
+        }
         let old_cells = self.cells.clone();
         let old_size = self.size;
         self.size = size;

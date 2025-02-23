@@ -1,12 +1,18 @@
 use std::alloc::{alloc, Layout};
 use std::collections::HashMap;
+use std::future::Future;
 use std::os::raw::c_void;
+use std::pin::Pin;
+use std::process::Output;
+use std::sync::Arc;
 use std::{mem, os::windows::io::FromRawHandle, ptr};
 
+use tokio::sync::Mutex;
+use tokio::task;
 use windows::core::HRESULT;
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Console::ClosePseudoConsole;
-use windows::Win32::System::Threading::{InitializeProcThreadAttributeList, UpdateProcThreadAttribute};
+use windows::Win32::System::Threading::{InitializeProcThreadAttributeList, UpdateProcThreadAttribute, WaitForSingleObject, INFINITE};
 use windows::Win32::System::Threading::EXTENDED_STARTUPINFO_PRESENT;
 use windows::Win32::System::Threading::LPPROC_THREAD_ATTRIBUTE_LIST;
 use windows::Win32::System::Threading::PROCESS_INFORMATION;
@@ -16,8 +22,47 @@ use windows::Win32::System::Threading::STARTUPINFOW;
 use windows::Win32::{self, Foundation::HANDLE, Security::SECURITY_ATTRIBUTES, System::{Console::{CreatePseudoConsole, HPCON}, Pipes::CreatePipe}};
 use windows::Win32::System::Threading::CreateProcessW;
 
-use crate::process::{ProcessData, TerminalLike};
+use crate::process::{ProcessData, TerminalError, TerminalLike};
 use crate::Vector2;
+
+impl From<windows::core::Error> for TerminalError {
+    fn from(error: windows::core::Error) -> Self {
+        let err: Box<dyn std::error::Error + Send + Sync> = Box::new(error);
+        TerminalError::from(err)
+    }
+}
+
+fn close(
+    hpcon: HPCON,
+    input_read: HANDLE,
+    input_write: HANDLE,
+    output_read: HANDLE,
+    output_write: HANDLE,
+    proc_info: PROCESS_INFORMATION,
+) -> Result<(), TerminalError> {
+    unsafe {
+        ClosePseudoConsole(hpcon);
+        CloseHandle(input_read)?;
+        CloseHandle(output_write)?;
+        CloseHandle(input_write)?;
+        CloseHandle(output_read)?;
+        CloseHandle(proc_info.hProcess)?;
+        CloseHandle(proc_info.hThread)?;
+    }
+
+    Ok(())
+}
+
+struct ProcHandle {
+    handle: HANDLE,
+}
+impl ProcHandle {
+    fn handle(&self) -> HANDLE {
+        self.handle.clone()
+    }
+}
+unsafe impl Send for ProcHandle {}
+unsafe impl Sync for ProcHandle {}
 
 pub async fn spawn_interactive_process(program: &str, env: HashMap<String, String>, size: Vector2) -> windows::core::Result<ProcessData> {
     unsafe {
@@ -87,48 +132,87 @@ pub async fn spawn_interactive_process(program: &str, env: HashMap<String, Strin
         let reader = tokio::fs::File::from_std(std::fs::File::from_raw_handle(output_read.0));
         let writer = tokio::fs::File::from_std(std::fs::File::from_raw_handle(input_write.0));
 
-        Ok(ProcessData { stdin: Box::new(writer), stdout: Box::new(reader), terminal: Box::new(WinPTY {
-            hpc: hpcon,
+        let is_closed = Arc::new(Mutex::new(false));
+        let mut pty = WinPTY {
+            hpcon,
             input_read,
             input_write,
             output_read,
             output_write,
             proc_info,
             size,
+            done_future: None,
+            is_closed: is_closed.clone(),
+        };
+
+        let done_future = async move {
+            let handle = ProcHandle { handle: pty.proc_info.hProcess };
+            task::spawn_blocking(move || {
+                let _event: Win32::Foundation::WAIT_EVENT = WaitForSingleObject(handle.handle(), INFINITE);
+            }).await?;
+
+            pty.release().await?;
+
+            Ok(())
+        };
+
+        Ok(ProcessData { stdin: Box::new(writer), stdout: Box::new(reader), terminal: Box::new(WinPTY {
+            hpcon,
+            input_read,
+            input_write,
+            output_read,
+            output_write,
+            proc_info,
+            size,
+            done_future: Some(Box::pin(done_future)),
+            is_closed
         }) })
     }
 }
 
 struct WinPTY {
-    hpc: HPCON,
+    hpcon: HPCON,
     input_read: HANDLE,
     input_write: HANDLE,
     output_read: HANDLE,
     output_write: HANDLE,
     proc_info: PROCESS_INFORMATION,
     size: Vector2,
+    done_future: Option<Pin<Box<dyn std::future::Future<Output = Result<(), TerminalError>> + Send>>>,
+    is_closed: Arc<Mutex<bool>>,
+}
+
+unsafe impl Send for WinPTY {}
+unsafe impl Sync for WinPTY {}
+
+async fn close_pty(pty: &mut WinPTY) -> Result<(), TerminalError> {
+    let mut is_closed = pty.is_closed.lock().await;
+    if *is_closed == true {
+        return Ok(());
+    }
+    *is_closed = true;
+    close(pty.hpcon, pty.input_read, pty.input_write, pty.output_read, pty.output_write, pty.proc_info)
 }
 
 impl TerminalLike for WinPTY {
-    fn release(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        unsafe {
-            ClosePseudoConsole(self.hpc);
-            CloseHandle(self.input_read)?;
-            CloseHandle(self.input_write)?;
-            CloseHandle(self.output_read)?;
-            CloseHandle(self.output_write)?;
-            CloseHandle(self.proc_info.hProcess)?;
-            CloseHandle(self.proc_info.hThread)?;
-        }
-
-        Ok(())
+    fn take_done_future(&mut self) -> Option<Pin<Box<dyn std::future::Future<Output = Result<(), TerminalError>> + Send>>> {
+        self.done_future.take()
     }
-    fn set_size(&mut self, size: crate::canvas::Vector2) -> Result<(), Box<dyn std::error::Error>> {
+
+    fn release<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), TerminalError>> + 'a + Send>> {
+        let future = async {
+            close_pty(self).await
+        };
+
+        Box::pin(future)
+    }
+
+    fn set_size(&mut self, size: crate::canvas::Vector2) -> Result<(), TerminalError> {
         unsafe {
             let mut tty_size = Win32::System::Console::COORD::default();
             tty_size.X = size.x as i16;
             tty_size.Y = size.y as i16;
-            let result = windows::Win32::System::Console::ResizePseudoConsole(self.hpc, tty_size);
+            let result = windows::Win32::System::Console::ResizePseudoConsole(self.hpcon, tty_size);
             if let Err(e) = result {
                 tracing::error!("Error resizing pty: {:?}", e);
             }

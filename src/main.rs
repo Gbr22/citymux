@@ -8,7 +8,7 @@ use escape_codes::SetAlternateScreenBuffer;
 use exit::exit;
 use process::TerminalLike;
 use span::{Node, NodeData};
-use spawn::spawn_process;
+use spawn::{create_span, kill_active_span};
 use tokio::{io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Stdin}, select, sync::{futures, Mutex, RwLock}, task::JoinSet, time::{timeout, Instant}};
 use winapi::{shared::minwindef::DWORD, um::wincon::{ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT}};
 
@@ -22,6 +22,7 @@ mod canvas;
 mod draw;
 mod span;
 mod exit;
+mod layout;
 
 #[cfg(test)]
 mod test;
@@ -31,6 +32,7 @@ struct Process {
     pub stdin: Arc<Mutex<dyn AsyncWrite + Unpin + Send + Sync>>,
     pub terminal_info: Arc<Mutex<TerminalInfo>>,
     pub terminal: Arc<Mutex<Box<dyn TerminalLike>>>,
+    pub span_id: usize,
 }
 
 struct State {
@@ -38,18 +40,25 @@ struct State {
     pub stdout: Arc<Mutex<dyn AsyncWrite + Unpin + Send + Sync>>,
     pub size: Arc<RwLock<Vector2>>,
     pub processes: Arc<Mutex<Vec<Arc<Mutex<Process>>>>>,
-    pub futures: Arc<Mutex<Vec<Pin<Box<dyn std::future::Future<Output = ()>>>>>>,
+    pub process_channel: Arc<Mutex<Option<tokio::sync::mpsc::Sender<Pin<Box<dyn std::future::Future<Output = ()> + Send>>>>>>,
     pub last_canvas: Arc<Mutex<Canvas>>,
-    pub root_node: Arc<Mutex<Node>>,
+    pub root_node: Arc<Mutex<Option<Node>>>,
     pub span_id_counter: AtomicUsize,
     pub active_id: AtomicUsize,
 }
 
 impl State {
     pub async fn get_active_process(&self) -> Result<Option<Arc<Mutex<Process>>>, Box<dyn std::error::Error>> {
+        let active_process_id = self.active_id.load(std::sync::atomic::Ordering::Relaxed);
         let lock = self.processes.lock().await;
-        let first = lock.first();
-        Ok(first.cloned())
+        for process in lock.iter() {
+            let lock = process.lock().await;
+            if lock.span_id == active_process_id {
+                return Ok(Some(process.clone()));
+            }
+        }
+
+        Ok(None)
     }
 }
 
@@ -60,9 +69,9 @@ impl State {
             stdout: Arc::new(Mutex::new(output)),
             size: Arc::new(RwLock::new(Vector2::default())),
             processes: Arc::new(Mutex::new(Vec::new())),
-            futures: Arc::new(Mutex::new(Vec::new())),
+            process_channel: Arc::new(Mutex::new(None)),
             last_canvas: Arc::new(Mutex::new(Canvas::new(Vector2::new(0, 0)))),
-            root_node: Arc::new(Mutex::new(Node::new(0, NodeData::Void))),
+            root_node: Arc::new(Mutex::new(None)),
             span_id_counter: AtomicUsize::new(0),
             active_id: AtomicUsize::new(0),
         }
@@ -98,6 +107,19 @@ async fn write_input(state_container: StateContainer, data: &[u8], flush: bool) 
     }
 
     Ok(())
+}
+
+async fn handle_loop<F, R>(mut func: F) -> Result<(), Box<dyn std::error::Error>>
+    where
+        F: Fn() -> R,
+        R: std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>
+{
+    loop {
+        let result = func().await;
+        if let Err(e) = result {
+            tracing::error!("Error: {:?}", e);
+        }
+    }
 }
 
 async fn handle_stdin(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
@@ -178,7 +200,12 @@ async fn handle_stdin(state_container: StateContainer) -> Result<(), Box<dyn std
         }
 
         if byte == b'q' && escape_distance == Some(1) {
-            exit();
+            kill_active_span(state_container.clone()).await?;
+            continue;
+        }
+        if byte == b'n' && escape_distance == Some(1) {
+            create_span(state_container.clone()).await?;
+            continue;
         }
 
         tracing::debug!("[IN:{:?}:{:?}]", byte, byte as char);
@@ -186,18 +213,31 @@ async fn handle_stdin(state_container: StateContainer) -> Result<(), Box<dyn std
     }
 }
 
-async fn handle_stdout(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
+async fn init_proc_handler(state_container: StateContainer) -> Result<tokio::sync::mpsc::Receiver<Pin<Box<dyn Future<Output = ()> + Send>>>, Box<dyn std::error::Error>> {
+    let rx: tokio::sync::mpsc::Receiver<Pin<Box<dyn Future<Output = ()> + Send>>> = {
+        let state = state_container.get_state();
+        let mut process_channel = state.process_channel.lock().await;
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        *process_channel = Some(tx);
+
+        rx
+    };
+
+    Ok(rx)
+}
+
+async fn handle_child_processes(state_container: StateContainer, rx: Arc<Mutex<tokio::sync::mpsc::Receiver<Pin<Box<dyn Future<Output = ()> + Send>>>>>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut rx = rx.lock().await;
+    let mut join_set = JoinSet::new();
     loop {
-        let new_futures = {
-            let futures = state_container.get_state().futures.clone();
-            let mut futures = futures.lock().await;
-            let len = futures.len();
-            let result: Vec<Pin<Box<dyn Future<Output = ()>>>> = futures.drain(0..len).collect();
-            result
-        };
-        
-        for process in new_futures {
-            process.await;
+        tokio::select! {
+            Some(task) = rx.recv() => {
+                join_set.spawn(task);
+            }
+            Some(result) = join_set.join_next() => {}
+            else => {
+                tracing::error!("No more tasks to join");
+            },
         }
     }
 }
@@ -214,8 +254,6 @@ fn enable_raw_mode() -> Result<(), Box<dyn std::error::Error>> {
 async fn init_screen(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
     enable_raw_mode()?;
 
-    let stdin = state_container.get_state().stdin.clone();
-    let mut stdin = stdin.lock().await;
     let stdout = state_container.get_state().stdout.clone();
     let mut stdout = stdout.lock().await;
     stdout.write(SetAlternateScreenBuffer::enable().into()).await?;
@@ -226,14 +264,14 @@ async fn init_screen(state_container: StateContainer) -> Result<(), Box<dyn std:
 
 async fn run(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
     init_screen(state_container.clone()).await?;
-    let process = spawn_process(state_container.clone(), Vector2 {
-        x: 61,
-        y: 20
-    }).await?;
+    let rx = init_proc_handler(state_container.clone()).await?;
+    let rx = Arc::new(Mutex::new(rx));
+    let stdout_handler = handle_loop(||handle_child_processes(state_container.clone(), rx.clone()));
+    create_span(state_container.clone()).await?;
     let results = tokio::join!(
-        handle_stdin(state_container.clone()),
-        handle_stdout(state_container.clone()),
-        draw_loop(state_container.clone())
+        handle_loop(||handle_stdin(state_container.clone())),
+        stdout_handler,
+        handle_loop(||draw_loop(state_container.clone())),
     );
     results.0?;
     results.1?;
