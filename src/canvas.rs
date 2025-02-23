@@ -311,20 +311,44 @@ impl Default for Style {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum CellValueEnum {
+    String(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CellValue {
+    value: CellValueEnum,
+}
+
+impl CellValue {
+    pub fn to_vec(&self) -> Vec<u8> {
+        match &self.value {
+            CellValueEnum::String(value) => value.as_bytes().to_vec(),
+        }
+    }
+}
+
+impl <T: Into<String>> From<T> for CellValue {
+    fn from(value: T) -> Self {
+        CellValue { value: CellValueEnum::String(value.into()) }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Cell {
-    pub value: String,
+    pub value: CellValue,
     pub style: Style,
 }
 
 impl Cell {
-    pub fn new(value: impl Into<String>) -> Self {
+    pub fn new(value: impl Into<CellValue>) -> Self {
         Cell {
             value: value.into(),
             style: Style::default(),
         }
     }
-    pub fn new_styled(value: impl Into<String>, style: Style) -> Self {
+    pub fn new_styled(value: impl Into<CellValue>, style: Style) -> Self {
         Cell {
             value: value.into(),
             style,
@@ -332,8 +356,13 @@ impl Cell {
     }
     pub fn empty_styled(style: Style) -> Self {
         Cell {
-            value: " ".to_string(),
+            value: " ".into(),
             style,
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        match &self.value.value {
+            CellValueEnum::String(value) => value == " ",
         }
     }
 }
@@ -347,7 +376,7 @@ impl PartialEq for Cell {
 impl Default for Cell {
     fn default() -> Self {
         Cell {
-            value: " ".to_string(),
+            value: " ".into(),
             style: Style::default(),
         }
     }

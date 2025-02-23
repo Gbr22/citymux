@@ -197,33 +197,38 @@ impl Into<&[u8]> for ResetStyle {
     }
 }
 
-pub async fn get_cursor_position<R, W>(input: &mut R, output: &mut W) -> Result<(usize, usize), Box<dyn std::error::Error>>
-    where
-        R: AsyncRead + Unpin + ?Sized,
-        W: AsyncWrite + Unpin + ?Sized
-{
-    output.write(EnableConcealMode::default().into()).await?;
-    output.write(RequestCursorPosition::default().into()).await?;
-    output.flush().await?;
+pub struct EraseCharacter {
+    count: usize,
+}
 
-    output.write("\n".as_bytes()).await?;
-    println!("Requested cursor position");
+impl EraseCharacter {
+    pub fn new(count: impl TryInto<usize>) -> Self {
+        EraseCharacter {
+            count: count.try_into().unwrap_or(0)
+        }
+    }
+}
 
-    input.read_u8().await?; // Read the ESC character
-    input.read_u8().await?; // Read the [ character
+impl Into<Vec<u8>> for EraseCharacter {
+    fn into(self) -> Vec<u8> {
+        let string = format!("\x1b[{}X", self.count);
+        string.as_bytes().to_owned()
+    }
+}
 
-    let mut buf_reader = BufReader::new(input);
-    let mut y = Vec::new();
-    buf_reader.read_until(b';', &mut y).await?;
-    let y = &y[0..y.len()-1];
-    let y = String::from_utf8_lossy(&y).to_string();
-    let y = usize::from_str_radix(&y, 10)?;
-    let mut x = Vec::new();
-    buf_reader.read_until(b'R', &mut x).await?;
-    let x = &x[0..x.len()-1];
-    let x = String::from_utf8_lossy(&x).to_string();
-    let x = usize::from_str_radix(&x, 10)?;
-    println!("Read x: {:?}, y: {:?}", x, y);
-
-    Ok((y, x))
+pub struct CursorForward {
+    count: usize,
+}
+impl CursorForward {
+    pub fn new(count: impl TryInto<usize>) -> Self {
+        CursorForward {
+            count: count.try_into().unwrap_or(0)
+        }
+    }
+}
+impl Into<Vec<u8>> for CursorForward {
+    fn into(self) -> Vec<u8> {
+        let string = format!("\x1b[{}C", self.count);
+        string.as_bytes().to_owned()
+    }
 }

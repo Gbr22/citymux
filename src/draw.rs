@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::{io::AsyncWriteExt, sync::Mutex};
 
-use crate::{canvas::{Canvas, Cell, Color, Style, Vector2}, escape_codes::{MoveCursor, ResetStyle, SetCursorVisibility}, Process, StateContainer};
+use crate::{canvas::{Canvas, Cell, Color, Style, Vector2}, escape_codes::{CursorForward, EraseCharacter, MoveCursor, ResetStyle, SetCursorVisibility}, Process, StateContainer};
 
 pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
     let stdout = state_container.get_state().stdout.clone();
@@ -68,8 +68,29 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
         if last_canvas.ne(&new_canvas) {
             for y in 0..new_canvas.size().y {
                 to_write.extend(&Into::<Vec<u8>>::into(MoveCursor::new(y, 0)));
+                let mut empty_count = 0;
                 for x in 0..new_canvas.size().x {
                     let cell = new_canvas.get_cell((x, y));
+                    let has_next = x + 1 < new_canvas.size().x;
+                    let next = new_canvas.get_cell((x + 1, y));
+                    
+                    let is_empty_optimization_enabled = false;
+                    if cell.is_empty() && is_empty_optimization_enabled {
+                        if empty_count == 0 {
+                            if cell.style != last_style {
+                                to_write.extend(Into::<&[u8]>::into(ResetStyle::default()));
+                                to_write.extend(&Into::<Vec<u8>>::into(cell.style.clone()));
+                            }
+                            last_style = cell.style.clone();
+                        }
+                        empty_count += 1;
+                        if !has_next || !next.is_empty() || next.style != last_style {
+                            to_write.extend(&Into::<Vec<u8>>::into(EraseCharacter::new(empty_count)));
+                            to_write.extend(&Into::<Vec<u8>>::into(CursorForward::new(empty_count)));
+                            empty_count = 0;
+                        }
+                        continue;
+                    }
 
                     if cell.style != last_style {
                         to_write.extend(Into::<&[u8]>::into(ResetStyle::default()));
@@ -77,7 +98,7 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
                         last_style = cell.style.clone();
                     }
 
-                    to_write.extend(cell.value.as_bytes());
+                    to_write.extend(&cell.value.to_vec());
                 }
                 to_write.extend("\r".as_bytes());
             }
@@ -111,7 +132,6 @@ pub async fn draw_loop(state_container: StateContainer) -> Result<(), Box<dyn st
             size.y = height as isize;
             size.x = width as isize;
         }
-
         draw(state_container.clone()).await?;
     }
 }

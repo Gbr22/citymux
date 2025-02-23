@@ -4,7 +4,7 @@ use canvas::{Canvas, TerminalInfo, Vector2};
 use crossterm_winapi::{ConsoleMode, Handle};
 use draw::draw_loop;
 use encoding::CSI_FINAL_BYTES;
-use escape_codes::{get_cursor_position, DisableConcealMode, EnableComprehensiveKeyboardHandling, SetAlternateScreenBuffer, MoveCursor, RequestCursorPosition};
+use escape_codes::SetAlternateScreenBuffer;
 use exit::exit;
 use process::TerminalLike;
 use span::{Node, NodeData};
@@ -215,10 +215,7 @@ async fn init_screen(state_container: StateContainer) -> Result<(), Box<dyn std:
     let mut stdin = stdin.lock().await;
     let stdout = state_container.get_state().stdout.clone();
     let mut stdout = stdout.lock().await;
-    stdout.write(EnableComprehensiveKeyboardHandling::default().into()).await?;
     stdout.write(SetAlternateScreenBuffer::enable().into()).await?;
-    stdout.write(EnableComprehensiveKeyboardHandling::default().into()).await?;
-    stdout.write(&Into::<Vec<u8>>::into(MoveCursor::new(0, 0))).await?;
     stdout.flush().await?;
 
     Ok(())
