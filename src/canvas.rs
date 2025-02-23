@@ -16,6 +16,12 @@ pub struct Rect {
     pub size: Vector2,
 }
 
+impl Rect {
+    pub fn new(position: Vector2, size: Vector2) -> Self {
+        Rect { position, size }
+    }
+}
+
 impl From<(isize, isize)> for Vector2 {
     fn from(value: (isize, isize)) -> Self {
         Vector2 { x: value.0, y: value.1 }
@@ -107,7 +113,11 @@ impl Canvas {
         self.cells = vec![Cell::default(); isize::abs(size.x * size.y) as usize];
         for y in 0..isize::abs(size.y.min(old_size.y)) {
             for x in 0..isize::abs(size.x.min(old_size.x)) {
-                let cell = old_cells[(y * old_size.x + x) as usize].clone();
+                let index = (y * old_size.x + x) as usize;
+                if index >= old_cells.len() {
+                    continue;
+                }
+                let cell = old_cells[index].clone();
                 self.set_cell((x, y), cell);
             }
         }

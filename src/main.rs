@@ -8,7 +8,7 @@ use escape_codes::SetAlternateScreenBuffer;
 use exit::exit;
 use process::TerminalLike;
 use span::{Node, NodeData};
-use spawn::{create_span, kill_active_span};
+use spawn::{create_process, kill_active_span};
 use tokio::{io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Stdin}, select, sync::{futures, Mutex, RwLock}, task::JoinSet, time::{timeout, Instant}};
 use winapi::{shared::minwindef::DWORD, um::wincon::{ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT}};
 
@@ -204,7 +204,7 @@ async fn handle_stdin(state_container: StateContainer) -> Result<(), Box<dyn std
             continue;
         }
         if byte == b'n' && escape_distance == Some(1) {
-            create_span(state_container.clone()).await?;
+            create_process(state_container.clone()).await?;
             continue;
         }
 
@@ -267,7 +267,7 @@ async fn run(state_container: StateContainer) -> Result<(), Box<dyn std::error::
     let rx = init_proc_handler(state_container.clone()).await?;
     let rx = Arc::new(Mutex::new(rx));
     let stdout_handler = handle_loop(||handle_child_processes(state_container.clone(), rx.clone()));
-    create_span(state_container.clone()).await?;
+    create_process(state_container.clone()).await?;
     let results = tokio::join!(
         handle_loop(||handle_stdin(state_container.clone())),
         stdout_handler,

@@ -1,3 +1,5 @@
+use crate::{canvas::{Rect, Vector2}, StateContainer};
+
 
 #[derive(Debug, Clone, Copy)]
 pub enum SpanDirection {
@@ -93,4 +95,11 @@ impl Node {
             None => None,
         }
     }
+}
+
+pub async fn get_root_dimensions(state_container: StateContainer) -> Rect {
+    let state = state_container.get_state();
+    let size = state.size.read().await;
+
+    Rect::new(Vector2::new(0, 0), size.clone())
 }
