@@ -77,7 +77,6 @@ impl Debug for Canvas {
             }
         }
 
-        s.field("map", &format!("{:?}", map));
         s.finish()
     }
 }
@@ -155,6 +154,9 @@ impl Canvas {
         if x < 0 || y < 0 {
             return Cell::default();
         }
+        if position.x >= self.size.x || position.y >= self.size.y {
+            return Cell::default();
+        }
         let index = y * self.size.x + x;
         if self.cells.len() <= index as usize {
             return Cell::default();
@@ -169,6 +171,9 @@ impl Canvas {
         let y = position.y;
 
         if x < 0 || y < 0 {
+            return;
+        }
+        if position.x >= self.size.x || position.y >= self.size.y {
             return;
         }
         let index = y * self.size.x + x;
@@ -435,6 +440,20 @@ impl TerminalCommand {
 }
 
 impl TerminalInfo {
+    // ICH
+    pub fn insert_character(&mut self, count: usize) {
+        let cursor = self.cursor;
+        for x in (cursor.x..self.canvas.size.x).rev() {
+            let cell = self.canvas.get_cell((x, cursor.y));
+            self.canvas.set_cell((x+count.try_into().unwrap_or(0), cursor.y), cell);
+        }
+        for n in 0..count {
+            self.canvas.set_cell((cursor.x+n.try_into().unwrap_or(0), cursor.y), Cell::empty_styled(self.current_style.clone()));
+        }
+        self.is_wrap_state_pending = false;
+    }
+}
+impl TerminalInfo {
     pub fn set_cursor_y_wrap(&mut self, y: isize) {
         if y >= self.canvas.size.y {
             let mut diff = y - self.cursor.y;
@@ -529,6 +548,11 @@ impl TerminalInfo {
                     } else if function == b'D' {
                         self.set_cursor_x_no_wrap(self.cursor.x - number);
                     }
+                    return;
+                }
+                if string.ends_with("@") {
+                    let number = string.trim_end_matches("@").parse::<usize>().unwrap_or(1);
+                    self.insert_character(number);
                     return;
                 }
                 if string.ends_with("G") {
