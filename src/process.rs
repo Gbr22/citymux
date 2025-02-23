@@ -127,7 +127,7 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
             if number_of_bytes_to_read <= 0 {
                 is_utf8 = false;
                 let process = process.lock().await;
-                let command = TerminalCommand::String(String::from_utf8_lossy(&collected).to_string());
+                let command = TerminalCommand::string(String::from_utf8_lossy(&collected));
                 let mut canvas = process.terminal_info.lock().await;
                 canvas.execute_command(command);
                 collected.clear();
@@ -136,7 +136,7 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
         }
         {
             let process = process.lock().await;
-            let command = TerminalCommand::String(format!("{}",byte as char));
+            let command = TerminalCommand::string(format!("{}",byte as char));
             let mut canvas = process.terminal_info.lock().await;
             canvas.execute_command(command);
         }

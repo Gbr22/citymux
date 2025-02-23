@@ -23,6 +23,9 @@ mod draw;
 mod span;
 mod exit;
 
+#[cfg(test)]
+mod test;
+
 struct Process {
     pub stdout: Arc<Mutex<dyn AsyncRead + Unpin + Send + Sync>>,
     pub stdin: Arc<Mutex<dyn AsyncWrite + Unpin + Send + Sync>>,

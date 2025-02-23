@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::ops::{Add, Sub};
+use std::fmt::Debug;
 
 use crate::encoding::{CsiSequence, OscSequence};
 
@@ -48,10 +50,36 @@ impl PartialEq for Vector2 {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Canvas {
     cells: Vec<Cell>,
     size: Vector2,
+}
+
+impl Debug for Canvas {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = f.debug_struct("Canvas");
+
+        for y in 0..self.size.y {
+            let mut row_content = String::new();
+            for x in 0..self.size.x {
+                row_content += &self.get_cell((x, y)).to_string();
+            }
+            s.field(&format!("row_{}",y), &row_content);
+        }
+
+        let mut map = HashMap::new();
+        for y in 0..self.size.y {
+            for x in 0..self.size.x {
+                let cell = self.get_cell((x, y));
+                let key = (x,y);
+                map.insert(key, cell);
+            }
+        }
+
+        s.field("map", &format!("{:?}", map));
+        s.finish()
+    }
 }
 
 impl Canvas {
@@ -153,6 +181,7 @@ impl Canvas {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct TerminalInfo {
     pub title: String,
     pub canvas: Canvas,
@@ -365,6 +394,11 @@ impl Cell {
             CellValueEnum::String(value) => value == " ",
         }
     }
+    pub fn to_string(&self) -> String {
+        match &self.value.value {
+            CellValueEnum::String(value) => value.clone(),
+        }
+    }
 }
 
 impl PartialEq for Cell {
@@ -386,6 +420,18 @@ pub enum TerminalCommand {
     String(String),
     Csi(CsiSequence),
     Osc(OscSequence),
+}
+
+impl TerminalCommand {
+    pub fn string(string: impl Into<String>) -> Self {
+        TerminalCommand::String(string.into())
+    }
+    pub fn osc(osc_sequence: impl Into<OscSequence>) -> Self {
+        TerminalCommand::Osc(osc_sequence.into())
+    }
+    pub fn csi(csi_sequence: impl Into<CsiSequence>) -> Self {
+        TerminalCommand::Csi(csi_sequence.into())
+    }
 }
 
 impl TerminalInfo {
@@ -421,7 +467,7 @@ impl TerminalInfo {
     }
     pub fn set_cursor_x_pending_wrap(&mut self, x: isize) {
         if x >= self.canvas.size.x {
-            self.set_cursor_x_no_wrap(self.canvas.size.x-1);
+            self.cursor.x = self.canvas.size.x-1;
             self.is_wrap_state_pending = true;
         } else {
             self.cursor.x = x;
@@ -471,21 +517,25 @@ impl TerminalInfo {
                 let string = csi_sequence.content_as_string();
                 let last_char = string.as_bytes().last().unwrap_or(&0).to_owned();
                 if "ABCD".as_bytes().contains(&last_char) {
-                    let number = string[0..string.len()-1].parse::<usize>();
-                    if let Ok(number) = number {
-                        let number = number as isize;
-                        let function = string.as_bytes()[string.len()-1];
-                        if function == b'A' {
-                            self.set_cursor_y_no_wrap(self.cursor.y - number);
-                        } else if function == b'B' {
-                            self.set_cursor_y_no_wrap(self.cursor.y + number);
-                        } else if function == b'C' {
-                            self.set_cursor_x_no_wrap(self.cursor.x + number);
-                        } else if function == b'D' {
-                            self.set_cursor_x_no_wrap(self.cursor.x - number);
-                        }
-                        return;
+                    let number = string[0..string.len()-1].parse::<usize>().unwrap_or(1);
+                    let number = number as isize;
+                    let function = string.as_bytes()[string.len()-1];
+                    if function == b'A' {
+                        self.set_cursor_y_no_wrap(self.cursor.y - number);
+                    } else if function == b'B' {
+                        self.set_cursor_y_no_wrap(self.cursor.y + number);
+                    } else if function == b'C' {
+                        self.set_cursor_x_no_wrap(self.cursor.x + number);
+                    } else if function == b'D' {
+                        self.set_cursor_x_no_wrap(self.cursor.x - number);
                     }
+                    return;
+                }
+                if string.ends_with("G") {
+                    let substring = string.trim_end_matches("G");
+                    let number: isize = substring.parse::<isize>().unwrap_or(1) - 1;
+                    self.set_cursor_x_no_wrap(number);
+                    return;
                 }
                 if string == "K" || string == "0K" {
                     for x in self.cursor.x..self.canvas.size.x {
@@ -519,6 +569,7 @@ impl TerminalInfo {
                     for x in 0..number {
                         self.canvas.set_cell(self.cursor+Vector2::new(x.try_into().unwrap_or(0), 0), Cell::empty_styled(self.current_style.clone()));
                     }
+                    self.is_wrap_state_pending = false;
                     return;
                 }
                 if string == "?2004l" {
