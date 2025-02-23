@@ -24,7 +24,7 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
     let mut is_utf8 = false;
     let mut number_of_bytes_to_read: usize = 0;
     let mut collected = Vec::new();
-    let mut buffer = vec![0; 2048];
+    let mut buffer = vec![0; 4096];
     let mut read_buf = ReadBuf::new(&mut buffer);
     let mut filled_buf_option: Option<&[u8]> = None;
     loop {
@@ -39,6 +39,7 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
             if n == 0 {
                 return Ok(());
             }
+            tracing::debug!("Read {} bytes: {:?}", n, String::from_utf8_lossy(read_buf.filled()));
             filled_buf_option = Some(read_buf.filled());
             continue;
         }

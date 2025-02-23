@@ -26,17 +26,30 @@ impl Into<Vec<u8>> for MoveCursor {
     }
 }
 
-pub struct EnterAlternateScreenBuffer {}
+pub struct SetAlternateScreenBuffer {
+    is_enabled: bool,
+}
 
-impl Default for EnterAlternateScreenBuffer {
-    fn default() -> Self {
-        EnterAlternateScreenBuffer {}
+impl SetAlternateScreenBuffer {
+    pub fn new(value: bool) -> Self {
+        SetAlternateScreenBuffer {
+            is_enabled: value
+        }
+    }
+    pub fn enable() -> Self {
+        SetAlternateScreenBuffer::new(true)
+    }
+    pub fn disable() -> Self {
+        SetAlternateScreenBuffer::new(false)
     }
 }
 
-impl Into<&[u8]> for EnterAlternateScreenBuffer {
+impl Into<&[u8]> for SetAlternateScreenBuffer {
     fn into(self) -> &'static [u8] {
-        "\x1b[?1049h".as_bytes()
+        match self.is_enabled {
+            true => "\x1b[?1049h".as_bytes(),
+            false => "\x1b[?1049l".as_bytes(),
+        }
     }
 }
 

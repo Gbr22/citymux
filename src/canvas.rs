@@ -459,13 +459,13 @@ impl TerminalInfo {
                     }
                 }
                 if string == "K" || string == "0K" {
-                    for x in self.cursor.x..self.canvas.size.x-1 {
+                    for x in self.cursor.x..self.canvas.size.x {
                         self.canvas.set_cell((x, self.cursor.y), Cell::empty_styled(self.current_style.clone()));
                     }
                     return;
                 }
                 if string == "2J" || string == "3J" {
-                    for y in self.cursor.y..self.canvas.size.y-1 {
+                    for y in self.cursor.y..self.canvas.size.y {
                         for x in 0..self.canvas.size.x-1 {
                             self.canvas.set_cell((x, y), Cell::empty_styled(self.current_style.clone()));
                         }
