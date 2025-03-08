@@ -12,6 +12,21 @@ pub struct Vector2 {
     pub y: isize,
 }
 
+impl Vector2 {
+    pub fn max(self, other: Self) -> Self {
+        Vector2 {
+            x: self.x.max(other.x),
+            y: self.y.max(other.y),
+        }
+    }
+    pub fn min(self, other: Self) -> Self {
+        Vector2 {
+            x: self.x.min(other.x),
+            y: self.y.min(other.y),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Default, Debug)]
 pub struct Rect {
     pub position: Vector2,
@@ -219,6 +234,8 @@ impl Debug for TerminalInfo {
     }
 }
 
+const MIN_TERMINAL_SIZE: Vector2 = Vector2 { x: 5, y: 5 };
+
 impl TerminalInfo {
     pub fn process(&mut self, bytes: &[u8]) {
         self.parser.process(bytes);
@@ -227,12 +244,14 @@ impl TerminalInfo {
         self.parser.screen().application_keypad()
     }
     pub fn new(size: Vector2) -> Self {
+        let size = size.max(MIN_TERMINAL_SIZE);
         TerminalInfo {
             size,
             parser: vt100::Parser::new(size.y as u16,size.x as u16, 0),
         }
     }
     pub fn set_size(&mut self, size: Vector2) {
+        let size = size.max(MIN_TERMINAL_SIZE);
         if self.size == size {
             return;
         }

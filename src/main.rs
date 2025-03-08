@@ -293,7 +293,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Starting up");
 
     std::panic::set_hook(Box::new(move |info| {
-        tracing::error!("Panic: {:?}", info);
+        tracing::error!("Panic at {:?}: {:?}", info.location(), info.payload());
         std::process::exit(1);
     }));
 

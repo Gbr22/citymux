@@ -111,9 +111,19 @@ pub async fn draw_node(state_container: StateContainer, root: &Node, node: &Node
             let parent_canvas = canvas;
             let canvas = &mut Canvas::new(dimensions.size);
 
-            let vertical_bar = Cell::new_styled("│", Style::default()
-                .with_foreground_color(Color::new_one_byte(8+7)));
-            let horizontal_bar = Cell::new_styled("─", vertical_bar.style.clone());
+            let is_active = state_container.get_state().active_id.load(std::sync::atomic::Ordering::Relaxed) == node.id;
+            let highlight_color = Color::new_one_byte(8+6);
+            let inactive_border_style = Style::default()
+                .with_foreground_color(Color::new_one_byte(8+0));
+            let active_border_style = Style::default()
+                .with_foreground_color(highlight_color.clone());
+            let border_style = if is_active {
+                active_border_style
+            } else {
+                inactive_border_style
+            };
+            let vertical_bar = Cell::new_styled("│", border_style.clone());
+            let horizontal_bar = Cell::new_styled("─", border_style.clone());
             for y in 0..canvas.size().y {
                 let left = Vector2::new(0, y);
                 let right = Vector2::new(canvas.size().x-1, y);
@@ -126,13 +136,13 @@ pub async fn draw_node(state_container: StateContainer, root: &Node, node: &Node
                 canvas.set_cell(top, horizontal_bar.clone());
                 canvas.set_cell(bottom, horizontal_bar.clone());
             }
-            let top_left = Cell::new_styled("┌", horizontal_bar.style.clone());
+            let top_left = Cell::new_styled("┌", border_style.clone());
             canvas.set_cell(Vector2::new(0, 0), top_left);
-            let top_right = Cell::new_styled("┐", horizontal_bar.style.clone());
+            let top_right = Cell::new_styled("┐", border_style.clone());
             canvas.set_cell(Vector2::new(canvas.size().x-1, 0), top_right);
-            let bottom_left = Cell::new_styled("└", horizontal_bar.style.clone());
+            let bottom_left = Cell::new_styled("└", border_style.clone());
             canvas.set_cell(Vector2::new(0, canvas.size().y-1), bottom_left);
-            let bottom_right = Cell::new_styled("┘", horizontal_bar.style.clone());
+            let bottom_right = Cell::new_styled("┘", border_style.clone());
             canvas.set_cell(Vector2::new(canvas.size().x-1, canvas.size().y-1), bottom_right);
 
             let mut proc_canvas = Canvas::new(canvas.size() - Vector2::new(2, 2));
@@ -145,7 +155,7 @@ pub async fn draw_node(state_container: StateContainer, root: &Node, node: &Node
                     let mut title: Canvas = title.into();
                     title.iter_mut_cells().for_each(|cell| {
                         cell.style = Style::default()
-                            .with_background_color(Color::new_rgb(153, 100, 193))
+                            .with_background_color(highlight_color.clone())
                             .with_foreground_color(Color::new_one_byte(8+7));
                     });
                     title.set_size(Vector2::new(isize::min(title.size().x, canvas.size().x-2), 1));
