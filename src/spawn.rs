@@ -4,8 +4,9 @@ use which::which;
 
 use crate::{
     canvas::TerminalInfo,
-    draw::find_span_dimensions,
+    draw::trigger_draw,
     exit::exit,
+    layout::get_span_dimensions,
     process::handle_process,
     span::{get_root_dimensions, Node, NodeData, Span, SpanChild, SpanDirection},
     state::{Process, StateContainer},
@@ -69,7 +70,7 @@ pub async fn create_span(
                     Ok(new_id)
                 }
                 NodeData::Span(span) => {
-                    let active_sizes = find_span_dimensions(root, active_id, root_rect);
+                    let active_sizes = get_span_dimensions(root, active_id, root_rect);
                     let Some(active_sizes) = active_sizes else {
                         return Err("Could not find active sizes".into());
                     };
@@ -89,7 +90,7 @@ pub async fn create_span(
                         return Err("Could not find parent node id".into());
                     };
                     let parent_id = parent_id.to_owned();
-                    let parent_sizes = find_span_dimensions(root, parent_id, root_rect);
+                    let parent_sizes = get_span_dimensions(root, parent_id, root_rect);
                     let Some(parent_sizes) = parent_sizes else {
                         return Err("Could not find parent sizes".into());
                     };
@@ -257,6 +258,8 @@ pub async fn create_process(
         }
     }
 
+    trigger_draw(state_container.clone()).await;
+
     Ok(process)
 }
 
@@ -339,7 +342,8 @@ pub async fn kill_span(
 ) -> Result<(), Box<dyn std::error::Error>> {
     tracing::debug!("Killing span: {}", span_id);
     remove_node_from_state(state_container.clone(), span_id).await?;
-    kill_process(state_container, span_id).await?;
+    kill_process(state_container.clone(), span_id).await?;
+    trigger_draw(state_container.clone()).await;
 
     Ok(())
 }

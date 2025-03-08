@@ -10,6 +10,7 @@ use tokio::{
 
 use crate::{
     canvas::{Canvas, TerminalInfo, Vector2},
+    draw::DrawMessage,
     process::TerminalLike,
     span::Node,
 };
@@ -34,6 +35,7 @@ pub struct State {
             >,
         >,
     >,
+    pub draw_channel: Arc<Mutex<Option<tokio::sync::mpsc::Sender<DrawMessage>>>>,
     pub last_canvas: Arc<Mutex<Canvas>>,
     pub root_node: Arc<Mutex<Option<Node>>>,
     pub span_id_counter: AtomicUsize,
@@ -68,6 +70,7 @@ impl State {
             size: Arc::new(RwLock::new(Vector2::default())),
             processes: Arc::new(Mutex::new(Vec::new())),
             process_channel: Arc::new(Mutex::new(None)),
+            draw_channel: Arc::new(Mutex::new(None)),
             last_canvas: Arc::new(Mutex::new(Canvas::new(Vector2::new(0, 0)))),
             root_node: Arc::new(Mutex::new(None)),
             span_id_counter: AtomicUsize::new(0),

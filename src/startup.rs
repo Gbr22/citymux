@@ -3,6 +3,7 @@ use std::{future::Future, pin::Pin, sync::Arc};
 use crate::draw::draw_loop;
 use crate::escape_codes::SetAlternateScreenBuffer;
 use crate::input::handle_stdin;
+use crate::size::update_size;
 use crate::spawn::create_process;
 use crate::state::StateContainer;
 use crate::terminal::enable_raw_mode;
@@ -64,6 +65,7 @@ async fn handle_child_processes(
 
 async fn init_screen(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
     enable_raw_mode()?;
+    update_size(state_container.clone()).await?;
 
     let stdout = state_container.get_state().stdout.clone();
     let mut stdout = stdout.lock().await;

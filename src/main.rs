@@ -14,6 +14,7 @@ mod exit;
 mod input;
 mod layout;
 mod process;
+mod size;
 mod span;
 mod spawn;
 mod startup;

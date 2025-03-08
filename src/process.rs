@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 use tokio::task::JoinError;
 
 use crate::canvas::{self};
+use crate::draw::trigger_draw;
 use crate::spawn::kill_span;
 use crate::state::{Process, StateContainer};
 
@@ -89,6 +90,7 @@ pub async fn handle_process(
                 let mut canvas = process.terminal_info.lock().await;
                 canvas.process(filled_buf);
             }
+            trigger_draw(state_container.clone()).await;
         }
     };
     let done_future = {

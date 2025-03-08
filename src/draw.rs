@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
-use tokio::{io::AsyncWriteExt, sync::Mutex};
+use tokio::{io::AsyncWriteExt, sync::Mutex, time::MissedTickBehavior};
 
 use crate::{
     canvas::{Canvas, Cell, Color, Rect, Style, Vector2},
     escape_codes::{CursorForward, EraseCharacter, MoveCursor, ResetStyle, SetCursorVisibility},
-    span::{Node, NodeData, SpanDirection},
+    layout::get_span_dimensions,
+    size::update_size,
+    span::{Node, NodeData},
     state::{Process, StateContainer},
 };
 
@@ -46,100 +48,6 @@ pub async fn draw_node_content(
     Ok(())
 }
 
-pub fn find_span_dimensions(node: &Node, span_id: usize, parent_dimensions: Rect) -> Option<Rect> {
-    if node.id == span_id {
-        return Some(parent_dimensions);
-    }
-    match node.data {
-        NodeData::Span(ref span) => {
-            let direction = span.direction;
-            let mut total = 0.0;
-            for child in &span.children {
-                total += child.size;
-            }
-
-            let mut sizes = vec![Vector2::default(); span.children.len()];
-            let mut remaining_size = parent_dimensions.size;
-            for (index, child) in span.children.iter().enumerate() {
-                let size = child.size;
-                let ratio = size / total;
-                let size = match direction {
-                    SpanDirection::Horizontal => Vector2::new(
-                        (parent_dimensions.size.x as f64 * ratio).floor() as isize,
-                        parent_dimensions.size.y,
-                    ),
-                    SpanDirection::Vertical => Vector2::new(
-                        parent_dimensions.size.x,
-                        (parent_dimensions.size.y as f64 * ratio).floor() as isize,
-                    ),
-                };
-                sizes[index] = size;
-                remaining_size = remaining_size - size;
-            }
-            match direction {
-                SpanDirection::Horizontal => {
-                    while remaining_size.x > 0 {
-                        let smallest = sizes
-                            .iter_mut()
-                            .enumerate()
-                            .min_by_key(|(_, size)| size.x);
-                        let Some(smallest) = smallest else {
-                            break;
-                        };
-                        let smallest = smallest.0;
-
-                        sizes[smallest].x += 1;
-                        remaining_size.x -= 1;
-                    }
-                },
-                SpanDirection::Vertical => {
-                    while remaining_size.y > 0 {
-                        let smallest = sizes
-                            .iter_mut()
-                            .enumerate()
-                            .min_by_key(|(_, size)| size.y);
-                        let Some(smallest) = smallest else {
-                            break;
-                        };
-                        let smallest = smallest.0;
-
-                        sizes[smallest].y += 1;
-                        remaining_size.y -= 1;
-                    }
-                },
-            }
-
-            let mut last_size = Vector2::new(0, 0);
-            let mut last_position = parent_dimensions.position;
-            for (index, child) in span.children.iter().enumerate() {
-                let size = sizes[index];
-                let position = match direction {
-                    SpanDirection::Horizontal => {
-                        Vector2::new(last_position.x + last_size.x, last_position.y)
-                    }
-                    SpanDirection::Vertical => {
-                        Vector2::new(last_position.x, last_position.y + last_size.y)
-                    }
-                };
-
-                last_size = size;
-                last_position = position;
-
-                let sub_dim = find_span_dimensions(&child.node, span_id, Rect { position, size });
-
-                if let Some(sub_dim) = sub_dim {
-                    return Some(sub_dim);
-                }
-            }
-        }
-        NodeData::Void => {
-            return None;
-        }
-    };
-
-    None
-}
-
 pub async fn draw_node(
     state_container: StateContainer,
     root: &Node,
@@ -156,7 +64,7 @@ pub async fn draw_node(
             }
         }
         NodeData::Void => {
-            let dimensions = find_span_dimensions(
+            let dimensions = get_span_dimensions(
                 root,
                 node.id,
                 Rect {
@@ -287,7 +195,7 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
                     let has_next = x + 1 < new_canvas.size().x;
                     let next = new_canvas.get_cell((x + 1, y));
 
-                    let is_empty_optimization_enabled = false;
+                    let is_empty_optimization_enabled = true;
                     if cell.is_empty() && is_empty_optimization_enabled {
                         if empty_count == 0 {
                             if cell.style != last_style {
@@ -344,7 +252,7 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
                 let root = state.root_node.lock().await;
                 let root = root.as_ref();
                 if let Some(root) = root {
-                    let span = find_span_dimensions(
+                    let span = get_span_dimensions(
                         root,
                         process.span_id,
                         Rect {
@@ -368,15 +276,60 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-pub async fn draw_loop(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
+#[derive(Default)]
+pub struct DrawMessage {
+    _private: (),
+}
+
+pub async fn trigger_draw(state_container: StateContainer) {
+    let state = state_container.get_state();
+    let draw_channel = { state.draw_channel.lock().await.clone() };
+    let Some(ref draw_channel) = draw_channel else {
+        tracing::warn!("No draw channel");
+        return;
+    };
+    let _ = draw_channel.send(DrawMessage::default()).await;
+}
+
+async fn channel_draw_loop(
+    state_container: StateContainer,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut rx: tokio::sync::mpsc::Receiver<DrawMessage> = {
+        let state = state_container.get_state();
+        let mut draw_channel = state.draw_channel.lock().await;
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        *draw_channel = Some(tx);
+
+        rx
+    };
+
     loop {
-        let (width, height) = crossterm::terminal::size()?;
-        let size = state_container.get_state().size.clone();
-        {
-            let mut size = size.write().await;
-            size.y = height as isize;
-            size.x = width as isize;
-        }
+        update_size(state_container.clone()).await?;
+        draw(state_container.clone()).await?;
+        rx.recv().await;
+    }
+}
+
+pub async fn timeout_draw_loop(
+    state_container: StateContainer,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut interval = tokio::time::interval(std::time::Duration::from_millis(16));
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        interval.tick().await;
+        update_size(state_container.clone()).await?;
         draw(state_container.clone()).await?;
     }
+}
+
+pub async fn draw_loop(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
+    let results = tokio::join!(
+        channel_draw_loop(state_container.clone()),
+        timeout_draw_loop(state_container)
+    );
+
+    results.0?;
+    results.1?;
+
+    Ok(())
 }
