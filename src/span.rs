@@ -1,5 +1,7 @@
-use crate::{canvas::{Rect, Vector2}, StateContainer};
-
+use crate::{
+    canvas::{Rect, Vector2},
+    StateContainer,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum SpanDirection {
@@ -21,7 +23,10 @@ pub struct Span {
 
 impl Span {
     pub fn new(kind: SpanDirection) -> Self {
-        Span { direction: kind, children: Vec::new() }
+        Span {
+            direction: kind,
+            children: Vec::new(),
+        }
     }
 }
 
@@ -39,10 +44,16 @@ pub struct SpanChild {
 
 impl SpanChild {
     pub fn new(child: Node) -> Self {
-        SpanChild { size: 1.0, node: child }
+        SpanChild {
+            size: 1.0,
+            node: child,
+        }
     }
     pub fn with_size(self, size: f64) -> Self {
-        SpanChild { size, node: self.node }
+        SpanChild {
+            size,
+            node: self.node,
+        }
     }
 }
 
@@ -52,26 +63,27 @@ pub struct Node {
     pub data: NodeData,
 }
 
-fn find_by_id_internal<'a>(node: &'a mut Node, id: usize, path: &mut Vec<usize>) -> Option<&'a mut Node> {
+fn find_by_id_internal<'a>(
+    node: &'a mut Node,
+    id: usize,
+    path: &mut Vec<usize>,
+) -> Option<&'a mut Node> {
     path.push(node.id());
     if node.id == id {
         path.pop();
         return Some(node);
     }
-    match &mut node.data {
-        NodeData::Span(span) => {
-            for child in &mut span.children {
-                let node = &mut child.node;
-                if node.id == id {
-                    return Some(node);
-                }
-                let node = find_by_id_internal(node, id, path);
-                if node.is_some() {
-                    return node;
-                }
+    if let NodeData::Span(span) = &mut node.data {
+        for child in &mut span.children {
+            let node = &mut child.node;
+            if node.id == id {
+                return Some(node);
+            }
+            let node = find_by_id_internal(node, id, path);
+            if node.is_some() {
+                return node;
             }
         }
-        _ => {}
     };
 
     path.pop();
@@ -90,10 +102,7 @@ impl Node {
         let mut path = Vec::new();
         let result = find_by_id_internal(self, id, &mut path);
 
-        match result {
-            Some(node) => Some((node, path)),
-            None => None,
-        }
+        result.map(|node| (node, path))
     }
 }
 
@@ -101,5 +110,5 @@ pub async fn get_root_dimensions(state_container: StateContainer) -> Rect {
     let state = state_container.get_state();
     let size = state.size.read().await;
 
-    Rect::new(Vector2::new(0, 0), size.clone())
+    Rect::new(Vector2::new(0, 0), *size)
 }

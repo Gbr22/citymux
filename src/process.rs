@@ -2,14 +2,14 @@ use std::fmt::Display;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio::io::{AsyncReadExt, ReadBuf};
 
-use tokio::{join, select};
 use tokio::sync::Mutex;
 use tokio::task::JoinError;
 
-use crate::spawn::{kill_process, kill_span};
-use crate::{canvas::{self, TerminalCommand}, encoding::{CsiSequence, OscSequence, CSI_FINAL_BYTES}, Process, StateContainer};
+use crate::canvas::{self};
+use crate::spawn::kill_span;
+use crate::state::{Process, StateContainer};
 
 pub struct ProcessData {
     pub stdin: Box<dyn tokio::io::AsyncWrite + Unpin + Send + Sync>,
@@ -18,15 +18,19 @@ pub struct ProcessData {
 }
 
 pub trait TerminalLike: Send + Sync {
-    fn release<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), TerminalError>> + 'a + Send>>;
+    fn release<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), TerminalError>> + 'a + Send>>;
     fn set_size(&mut self, size: canvas::Vector2) -> Result<(), TerminalError>;
     fn size(&self) -> canvas::Vector2;
-    fn take_done_future(&mut self) -> Option<Pin<Box<dyn std::future::Future<Output = Result<(), TerminalError>> + Send>>>;
+    fn take_done_future(
+        &mut self,
+    ) -> Option<Pin<Box<dyn std::future::Future<Output = Result<(), TerminalError>> + Send>>>;
 }
 
 #[derive(Debug)]
 pub struct TerminalError {
-    error: Box<dyn std::error::Error + Send + Sync>
+    error: Box<dyn std::error::Error + Send + Sync>,
 }
 
 unsafe impl Send for TerminalError {}
@@ -39,7 +43,9 @@ impl From<Box<dyn std::error::Error + Send + Sync>> for TerminalError {
 }
 impl From<JoinError> for TerminalError {
     fn from(error: JoinError) -> Self {
-        TerminalError { error: Box::new(error) }
+        TerminalError {
+            error: Box::new(error),
+        }
     }
 }
 
@@ -55,9 +61,11 @@ impl Display for TerminalError {
     }
 }
 
-pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<Process>>) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn handle_process(
+    state_container: StateContainer,
+    process: Arc<Mutex<Process>>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let stdout_future = async {
-        
         loop {
             let stdout = {
                 let process = process.lock().await;
@@ -67,9 +75,7 @@ pub async fn handle_process(state_container: StateContainer, process: Arc<Mutex<
             let mut read_buf = ReadBuf::new(&mut buffer);
             let mut stdout = stdout.lock().await;
             let filled_buf = match stdout.read_buf(&mut read_buf).await {
-                Ok(_) => {
-                    read_buf.filled()
-                },
+                Ok(_) => read_buf.filled(),
                 Err(err) => {
                     tracing::debug!("Error in stdout: {:?}", err);
                     break;

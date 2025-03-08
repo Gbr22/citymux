@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::ops::{Add, Sub};
 use std::fmt::Debug;
+use std::ops::{Add, Sub};
 
 use vt100::Parser;
 
@@ -41,7 +41,10 @@ impl Rect {
 
 impl From<(isize, isize)> for Vector2 {
     fn from(value: (isize, isize)) -> Self {
-        Vector2 { x: value.0, y: value.1 }
+        Vector2 {
+            x: value.0,
+            y: value.1,
+        }
     }
 }
 
@@ -94,14 +97,14 @@ impl Debug for Canvas {
             for x in 0..self.size.x {
                 row_content += &self.get_cell((x, y)).to_string();
             }
-            s.field(&format!("row_{}",y), &row_content);
+            s.field(&format!("row_{}", y), &row_content);
         }
 
         let mut map = HashMap::new();
         for y in 0..self.size.y {
             for x in 0..self.size.x {
                 let cell = self.get_cell((x, y));
-                let key = (x,y);
+                let key = (x, y);
                 map.insert(key, cell);
             }
         }
@@ -155,7 +158,10 @@ impl From<String> for Canvas {
 impl From<&str> for Canvas {
     fn from(value: &str) -> Self {
         let chars = value.chars().collect::<Vec<char>>();
-        let mut canvas = Canvas::new(Vector2 { x: chars.len() as isize, y: 1 });
+        let mut canvas = Canvas::new(Vector2 {
+            x: chars.len() as isize,
+            y: 1,
+        });
         let mut x = 0;
         for c in value.chars() {
             canvas.set_cell((x, 0), Cell::new_styled(c, Style::default()));
@@ -178,7 +184,7 @@ impl Canvas {
             for x in 0..canvas.size.x {
                 let pos = Vector2::new(x, y);
                 let cell = canvas.get_cell(pos);
-                self.set_cell( pos + position, cell);
+                self.set_cell(pos + position, cell);
             }
         }
     }
@@ -197,10 +203,10 @@ impl Canvas {
         if self.cells.len() <= index as usize {
             return Cell::default();
         }
-    
+
         self.cells[index as usize].clone()
     }
-    
+
     pub fn set_cell(&mut self, position: impl Into<Vector2>, cell: Cell) {
         let position = position.into();
         let x = position.x;
@@ -214,23 +220,28 @@ impl Canvas {
         }
         let index = y * self.size.x + x;
         if self.cells.len() <= index as usize {
-            tracing::debug!("Index out of bounds: {:?}, {}, {}, {}", cell, x, y, self.cells.len());
+            tracing::debug!(
+                "Index out of bounds: {:?}, {}, {}, {}",
+                cell,
+                x,
+                y,
+                self.cells.len()
+            );
             return;
         }
-    
+
         self.cells[index as usize] = cell;
     }
 }
 
 pub struct TerminalInfo {
     size: Vector2,
-    parser: Parser
+    parser: Parser,
 }
 
 impl Debug for TerminalInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TerminalInfo")
-            .finish()
+        f.debug_struct("TerminalInfo").finish()
     }
 }
 
@@ -247,7 +258,7 @@ impl TerminalInfo {
         let size = size.max(MIN_TERMINAL_SIZE);
         TerminalInfo {
             size,
-            parser: vt100::Parser::new(size.y as u16,size.x as u16, 0),
+            parser: vt100::Parser::new(size.y as u16, size.x as u16, 0),
         }
     }
     pub fn set_size(&mut self, size: Vector2) {
@@ -270,7 +281,7 @@ impl TerminalInfo {
     }
     pub fn canvas(&self) -> Canvas {
         let screen = self.parser.screen();
-        
+
         let (height, width) = screen.size();
         let mut canvas = Canvas::new(Vector2::new(width as isize, height as isize));
         for y in 0..height {
@@ -281,7 +292,7 @@ impl TerminalInfo {
                     let style = Style::default();
                     let value = CellValue::from(" ");
                     let cell = Cell::new_styled(value, style);
-                    canvas.set_cell(position, cell);    
+                    canvas.set_cell(position, cell);
                     continue;
                 };
                 let style = Style::default()
@@ -303,7 +314,7 @@ impl TerminalInfo {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct Style {
     foreground_color: Color,
     background_color: Color,
@@ -330,15 +341,15 @@ impl Style {
     }
 }
 
-impl Into<Vec<u8>> for Style {
-    fn into(self) -> Vec<u8> {
+impl From<Style> for Vec<u8> {
+    fn from(val: Style) -> Self {
         let mut bytes = Vec::new();
-        let bg = self.background_color();
-        let fg = self.foreground_color();
+        let bg = val.background_color();
+        let fg = val.foreground_color();
         bytes.extend(bg.to_vec(ColorType::Background));
         bytes.extend(fg.to_vec(ColorType::Foreground));
-        
-        return bytes;
+
+        bytes
     }
 }
 
@@ -403,45 +414,32 @@ impl Color {
         match &self.color {
             ColorEnum::Default => {
                 bytes.extend((prefix + 9).to_string().as_bytes());
-            },
+            }
             ColorEnum::OneByte(value) => {
                 if (0..=7).contains(value) {
                     bytes.extend((prefix + value).to_string().as_bytes());
-                }
-                else if (8..=15).contains(value) {
+                } else if (8..=15).contains(value) {
                     bytes.extend((60 + prefix + value - 8).to_string().as_bytes());
-                }
-                else {
-                    bytes.extend((prefix+8).to_string().as_bytes());
+                } else {
+                    bytes.extend((prefix + 8).to_string().as_bytes());
                     bytes.extend(";5;".as_bytes());
                     bytes.extend(value.to_string().as_bytes());
                 }
-            },
+            }
             ColorEnum::Rgb(r, g, b) => {
-                bytes.extend((prefix+8).to_string().as_bytes());
+                bytes.extend((prefix + 8).to_string().as_bytes());
                 bytes.extend(";2;".as_bytes());
                 bytes.extend(r.to_string().as_bytes());
                 bytes.extend(";".as_bytes());
                 bytes.extend(g.to_string().as_bytes());
                 bytes.extend(";".as_bytes());
                 bytes.extend(b.to_string().as_bytes());
-            },
-            _ => {},
+            }
+            _ => {}
         }
         bytes.extend("m".as_bytes());
 
         bytes
-    }
-}
-
-impl Default for Style {
-    fn default() -> Self {
-        Style {
-            foreground_color: Color::default(),
-            background_color: Color::default(),
-            is_bold: false,
-            is_italic: false,
-        }
     }
 }
 
@@ -463,9 +461,11 @@ impl CellValue {
     }
 }
 
-impl <T: Into<String>> From<T> for CellValue {
+impl<T: Into<String>> From<T> for CellValue {
     fn from(value: T) -> Self {
-        CellValue { value: CellValueEnum::String(value.into()) }
+        CellValue {
+            value: CellValueEnum::String(value.into()),
+        }
     }
 }
 
