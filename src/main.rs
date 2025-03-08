@@ -175,7 +175,7 @@ async fn handle_stdin(state_container: StateContainer) -> Result<(), Box<dyn std
                 let process = process.lock().await;
                 let terminal_info = process.terminal_info.lock().await;
                 
-                terminal_info.is_application_key_mode_enabled
+                terminal_info.application_key_mode()
             };
             if is_application_key_mode_enabled {
                 if "ABCDHF".as_bytes().contains(&first_byte) {
@@ -234,7 +234,11 @@ async fn handle_child_processes(state_container: StateContainer, rx: Arc<Mutex<t
             Some(task) = rx.recv() => {
                 join_set.spawn(task);
             }
-            Some(result) = join_set.join_next() => {}
+            Some(result) = join_set.join_next() => {
+                if let Err(e) = result {
+                    tracing::error!("Error in child: {:?}", e);
+                }
+            }
             else => {
                 tracing::error!("No more tasks to join");
             },
@@ -287,6 +291,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }).finish();
     tracing::subscriber::set_global_default(subscriber)?;
     tracing::info!("Starting up");
+
+    std::panic::set_hook(Box::new(move |info| {
+        tracing::error!("Panic: {:?}", info);
+        std::process::exit(1);
+    }));
 
     let state_container = StateContainer::new(State::new(io::stdin(), io::stdout()));
     if let Err(e) = run(state_container).await {

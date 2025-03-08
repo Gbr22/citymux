@@ -18,15 +18,14 @@ pub async fn find_process_by_id(state_container: StateContainer, id: usize) -> O
 
 pub async fn draw_node_content(state_container: StateContainer, node: &Node, process: Arc<Mutex<Process>>, output_canvas: &mut Canvas) -> Result<(), Box<dyn std::error::Error>> {
     let process = process.lock().await;
-    let mut terminal = process.terminal_info.lock().await;
-    let canvas = &mut terminal.canvas;
     let size = output_canvas.size();
-    canvas.set_size(size);
+    let mut terminal = process.terminal_info.lock().await;
+    terminal.set_size(size);
+    let canvas = terminal.canvas();
     {
         let mut terminal = process.terminal.lock().await;
         if terminal.size() != size {
             terminal.set_size(size)?;
-            tracing::debug!("Resized terminal to {:?}", canvas.size());
         }
     }
     output_canvas.put_canvas(&canvas, Vector2::new(0, 0));
@@ -113,8 +112,7 @@ pub async fn draw_node(state_container: StateContainer, root: &Node, node: &Node
             let canvas = &mut Canvas::new(dimensions.size);
 
             let vertical_bar = Cell::new_styled("│", Style::default()
-                .with_foreground_color(Color::new_one_byte(8+7))
-            );
+                .with_foreground_color(Color::new_one_byte(8+7)));
             let horizontal_bar = Cell::new_styled("─", vertical_bar.style.clone());
             for y in 0..canvas.size().y {
                 let left = Vector2::new(0, y);
@@ -143,7 +141,7 @@ pub async fn draw_node(state_container: StateContainer, root: &Node, node: &Node
                 {
                     let process = process.lock().await;
                     let terminal_info = process.terminal_info.lock().await;
-                    let title = format!("[{}]", terminal_info.title);
+                    let title = format!("[{}]", terminal_info.title());
                     let mut title: Canvas = title.into();
                     title.iter_mut_cells().for_each(|cell| {
                         cell.style = Style::default()
@@ -250,14 +248,14 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
     if let Some(ref process) = active_process {
         let process = process.lock().await;
         let terminal = process.terminal_info.lock().await;
-        cursor_position = terminal.cursor;
+        cursor_position = terminal.cursor_position();
     }
 
     {
         if let Some(ref process) = active_process {
             let process = process.lock().await;
             let terminal = process.terminal_info.lock().await;
-            if terminal.is_cursor_visible {
+            if terminal.is_cursor_visible() {
                 let state = state_container.get_state();
                 let root = state.root_node.lock().await;
                 let root = root.as_ref();
