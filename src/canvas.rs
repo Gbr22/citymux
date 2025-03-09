@@ -46,8 +46,8 @@ impl Rect {
     pub fn contains(&self, vector: Vector2) -> bool {
         vector.x >= self.position.x
             && vector.y >= self.position.y
-            && vector.x < self.size.x
-            && vector.y < self.size.y
+            && vector.x < self.position.x + self.size.x
+            && vector.y < self.position.y + self.size.y
     }
 }
 

@@ -106,6 +106,9 @@ impl Performer {
                     let shifted_position = position - rect.position;
                     let terminal_info = process.terminal_info.lock().await;
                     let mouse_mode = terminal_info.mouse_protocol_mode();
+                    if is_press {
+                        state.set_active_span(process.span_id);
+                    }
                     let mut should_write = false;
                     if is_scroll {
                         should_write = true;

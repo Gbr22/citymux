@@ -74,9 +74,6 @@ impl State {
         let size = self.size.read().await.to_owned();
         get_span_dimensions(root_node, span_id, size)
     }
-}
-
-impl State {
     pub fn new(
         input: impl AsyncRead + Unpin + Send + Sync + 'static,
         output: impl AsyncWrite + Unpin + Send + Sync + 'static,
@@ -94,6 +91,10 @@ impl State {
             active_id: AtomicUsize::new(0),
             current_mouse_position: Arc::new(RwLock::new(Vector2::default())),
         }
+    }
+    pub fn set_active_span(&self, span_id: usize) {
+        self.active_id
+            .store(span_id, std::sync::atomic::Ordering::Relaxed)
     }
 }
 
