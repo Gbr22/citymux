@@ -15,7 +15,7 @@ pub async fn find_process_by_id(
     state_container: StateContainer,
     id: usize,
 ) -> Option<Arc<Mutex<Process>>> {
-    let processes = state_container.get_state().processes.lock().await.clone();
+    let processes = state_container.state().processes.lock().await.clone();
     for process in processes {
         let process_inner = process.lock().await;
         if process_inner.span_id == id {
@@ -31,7 +31,7 @@ pub async fn draw_node_content(
     node: &Node,
     process: Arc<Mutex<Process>>,
     output_canvas: &mut Canvas,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let process = process.lock().await;
     let size = output_canvas.size();
     let mut terminal = process.terminal_info.lock().await;
@@ -53,7 +53,7 @@ pub async fn draw_node(
     root: &Node,
     node: &Node,
     canvas: &mut Canvas,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     match node.data {
         NodeData::Span(ref span) => {
             for child in &span.children {
@@ -73,13 +73,13 @@ pub async fn draw_node(
                 },
             );
             let Some(dimensions) = dimensions else {
-                return Err("Could not find dimensions of span".into());
+                return Err(anyhow::format_err!("Could not find dimensions of span"));
             };
             let parent_canvas = canvas;
             let canvas = &mut Canvas::new(dimensions.size);
 
             let is_active = state_container
-                .get_state()
+                .state()
                 .active_id
                 .load(std::sync::atomic::Ordering::Relaxed)
                 == node.id;
@@ -130,7 +130,7 @@ pub async fn draw_node(
                     title.iter_mut_cells().for_each(|cell| {
                         cell.style = Style::default()
                             .with_background_color(highlight_color.clone())
-                            .with_foreground_color(Color::new_one_byte(8 + 7));
+                            .with_foreground_color(Color::new_one_byte(0));
                     });
                     title.set_size(Vector2::new(
                         isize::min(title.size().x, canvas.size().x - 2),
@@ -151,11 +151,11 @@ pub async fn draw_node(
     Ok(())
 }
 
-pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
-    let stdout = state_container.get_state().stdout.clone();
+pub async fn draw(state_container: StateContainer) -> anyhow::Result<()> {
+    let stdout = state_container.state().stdout.clone();
     let mut stdout = stdout.lock().await;
 
-    let size: Vector2 = *state_container.get_state().size.read().await;
+    let size: Vector2 = *state_container.state().size.read().await;
     let mut new_canvas = Canvas::new_filled(
         size,
         Cell::new_styled(
@@ -167,7 +167,7 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
     );
 
     {
-        let state = state_container.get_state();
+        let state = state_container.state();
         let root = state.root_node.lock().await;
         let root = root.as_ref();
         if let Some(root) = root {
@@ -182,7 +182,7 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
     to_write.extend(Into::<&[u8]>::into(ResetStyle::default()));
     to_write.extend(Into::<&[u8]>::into(SetCursorVisibility::new(false)));
     {
-        let state = state_container.get_state();
+        let state = state_container.state();
         let mut last_canvas = state.last_canvas.lock().await;
         let mut last_style = Style::default();
 
@@ -232,7 +232,7 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
 
     let mut cursor_position = Vector2::new(0, 0);
     let active_id = state_container
-        .get_state()
+        .state()
         .active_id
         .load(std::sync::atomic::Ordering::Relaxed);
     let active_process: Option<Arc<Mutex<Process>>> =
@@ -248,7 +248,7 @@ pub async fn draw(state_container: StateContainer) -> Result<(), Box<dyn std::er
             let process = process.lock().await;
             let terminal = process.terminal_info.lock().await;
             if terminal.is_cursor_visible() {
-                let state = state_container.get_state();
+                let state = state_container.state();
                 let root = state.root_node.lock().await;
                 let root = root.as_ref();
                 if let Some(root) = root {
@@ -282,7 +282,7 @@ pub struct DrawMessage {
 }
 
 pub async fn trigger_draw(state_container: StateContainer) {
-    let state = state_container.get_state();
+    let state = state_container.state();
     let draw_channel = { state.draw_channel.lock().await.clone() };
     let Some(ref draw_channel) = draw_channel else {
         tracing::warn!("No draw channel");
@@ -291,11 +291,9 @@ pub async fn trigger_draw(state_container: StateContainer) {
     let _ = draw_channel.send(DrawMessage::default()).await;
 }
 
-async fn channel_draw_loop(
-    state_container: StateContainer,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn channel_draw_loop(state_container: StateContainer) -> anyhow::Result<()> {
     let mut rx: tokio::sync::mpsc::Receiver<DrawMessage> = {
-        let state = state_container.get_state();
+        let state = state_container.state();
         let mut draw_channel = state.draw_channel.lock().await;
         let (tx, rx) = tokio::sync::mpsc::channel(1);
         *draw_channel = Some(tx);
@@ -310,9 +308,7 @@ async fn channel_draw_loop(
     }
 }
 
-pub async fn timeout_draw_loop(
-    state_container: StateContainer,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn timeout_draw_loop(state_container: StateContainer) -> anyhow::Result<()> {
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(16));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
@@ -322,7 +318,7 @@ pub async fn timeout_draw_loop(
     }
 }
 
-pub async fn draw_loop(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn draw_loop(state_container: StateContainer) -> anyhow::Result<()> {
     let results = tokio::join!(
         channel_draw_loop(state_container.clone()),
         timeout_draw_loop(state_container)

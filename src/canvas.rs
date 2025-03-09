@@ -12,6 +12,15 @@ pub struct Vector2 {
     pub y: isize,
 }
 
+impl From<Vector2> for Rect {
+    fn from(value: Vector2) -> Self {
+        Rect {
+            position: Vector2::default(),
+            size: value,
+        }
+    }
+}
+
 impl Vector2 {
     pub fn max(self, other: Self) -> Self {
         Vector2 {
@@ -31,6 +40,47 @@ impl Vector2 {
 pub struct Rect {
     pub position: Vector2,
     pub size: Vector2,
+}
+
+impl Rect {
+    pub fn contains(&self, vector: Vector2) -> bool {
+        vector.x >= self.position.x
+            && vector.y >= self.position.y
+            && vector.x < self.size.x
+            && vector.y < self.size.y
+    }
+}
+
+#[derive(Clone, Copy, Default, Debug)]
+pub struct BorderSize {
+    pub size: usize,
+}
+
+impl From<usize> for BorderSize {
+    fn from(value: usize) -> Self {
+        BorderSize { size: value }
+    }
+}
+
+impl From<isize> for BorderSize {
+    fn from(value: isize) -> Self {
+        BorderSize {
+            size: value.unsigned_abs(),
+        }
+    }
+}
+
+impl Sub<BorderSize> for Rect {
+    type Output = Rect;
+
+    fn sub(mut self, rhs: BorderSize) -> Self::Output {
+        self.position.x += rhs.size as isize;
+        self.position.y += rhs.size as isize;
+        self.size.x -= rhs.size as isize;
+        self.size.y -= rhs.size as isize;
+
+        self
+    }
 }
 
 impl Rect {
@@ -71,7 +121,7 @@ impl Sub for Vector2 {
 }
 
 impl Vector2 {
-    pub fn new(x: isize, y: isize) -> Self {
+    pub const fn new(x: isize, y: isize) -> Self {
         Vector2 { x, y }
     }
 }
@@ -247,12 +297,56 @@ impl Debug for TerminalInfo {
 
 const MIN_TERMINAL_SIZE: Vector2 = Vector2 { x: 5, y: 5 };
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum MouseProtocolMode {
+    None,
+    Press,
+    PressRelease,
+    ButtonMotion,
+    AnyMotion,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum MouseProtocolEncoding {
+    Default,
+    Utf8,
+    Sgr,
+}
+
+impl From<vt100::MouseProtocolMode> for MouseProtocolMode {
+    fn from(value: vt100::MouseProtocolMode) -> Self {
+        match value {
+            vt100::MouseProtocolMode::None => MouseProtocolMode::None,
+            vt100::MouseProtocolMode::Press => MouseProtocolMode::Press,
+            vt100::MouseProtocolMode::PressRelease => MouseProtocolMode::PressRelease,
+            vt100::MouseProtocolMode::ButtonMotion => MouseProtocolMode::ButtonMotion,
+            vt100::MouseProtocolMode::AnyMotion => MouseProtocolMode::AnyMotion,
+        }
+    }
+}
+
+impl From<vt100::MouseProtocolEncoding> for MouseProtocolEncoding {
+    fn from(value: vt100::MouseProtocolEncoding) -> Self {
+        match value {
+            vt100::MouseProtocolEncoding::Default => MouseProtocolEncoding::Default,
+            vt100::MouseProtocolEncoding::Utf8 => MouseProtocolEncoding::Utf8,
+            vt100::MouseProtocolEncoding::Sgr => MouseProtocolEncoding::Sgr,
+        }
+    }
+}
+
 impl TerminalInfo {
     pub fn process(&mut self, bytes: &[u8]) {
         self.parser.process(bytes);
     }
-    pub fn application_key_mode(&self) -> bool {
+    pub fn application_keypad_mode(&self) -> bool {
         self.parser.screen().application_keypad()
+    }
+    pub fn mouse_protocol_mode(&self) -> MouseProtocolMode {
+        self.parser.screen().mouse_protocol_mode().into()
+    }
+    pub fn mouse_protocol_encoding(&self) -> MouseProtocolEncoding {
+        self.parser.screen().mouse_protocol_encoding().into()
     }
     pub fn new(size: Vector2) -> Self {
         let size = size.max(MIN_TERMINAL_SIZE);

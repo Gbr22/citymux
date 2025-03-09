@@ -195,3 +195,41 @@ impl From<CursorForward> for Vec<u8> {
         string.as_bytes().to_owned()
     }
 }
+
+pub struct AllMotionTracking {
+    is_enabled: bool,
+}
+
+impl AllMotionTracking {
+    pub fn new(value: bool) -> Self {
+        AllMotionTracking { is_enabled: value }
+    }
+}
+
+impl From<AllMotionTracking> for &[u8] {
+    fn from(val: AllMotionTracking) -> Self {
+        match val.is_enabled {
+            true => "\x1b[?1003h".as_bytes(),
+            false => "\x1b[?1003l".as_bytes(),
+        }
+    }
+}
+
+pub struct SgrMouseHandling {
+    is_enabled: bool,
+}
+
+impl SgrMouseHandling {
+    pub fn new(value: bool) -> Self {
+        SgrMouseHandling { is_enabled: value }
+    }
+}
+
+impl From<SgrMouseHandling> for &[u8] {
+    fn from(val: SgrMouseHandling) -> Self {
+        match val.is_enabled {
+            true => "\x1b[?1006h".as_bytes(),
+            false => "\x1b[?1006l".as_bytes(),
+        }
+    }
+}

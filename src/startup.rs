@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use crate::draw::draw_loop;
-use crate::escape_codes::SetAlternateScreenBuffer;
+use crate::escape_codes::{AllMotionTracking, SetAlternateScreenBuffer, SgrMouseHandling};
 use crate::input::handle_stdin;
 use crate::size::update_size;
 use crate::spawn::create_process;
@@ -9,10 +9,10 @@ use crate::state::StateContainer;
 use crate::terminal::enable_raw_mode;
 use tokio::{io::AsyncWriteExt, sync::Mutex, task::JoinSet};
 
-async fn handle_loop<F, R>(func: F) -> Result<(), Box<dyn std::error::Error>>
+async fn handle_loop<F, R>(func: F) -> anyhow::Result<()>
 where
     F: Fn() -> R,
-    R: std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>,
+    R: std::future::Future<Output = anyhow::Result<()>>,
 {
     loop {
         let result = func().await;
@@ -29,7 +29,7 @@ async fn init_proc_handler(
     Box<dyn std::error::Error>,
 > {
     let rx: tokio::sync::mpsc::Receiver<Pin<Box<dyn Future<Output = ()> + Send>>> = {
-        let state = state_container.get_state();
+        let state = state_container.state();
         let mut process_channel = state.process_channel.lock().await;
         let (tx, rx) = tokio::sync::mpsc::channel(1);
         *process_channel = Some(tx);
@@ -43,7 +43,7 @@ async fn init_proc_handler(
 async fn handle_child_processes(
     state_container: StateContainer,
     rx: Arc<Mutex<tokio::sync::mpsc::Receiver<Pin<Box<dyn Future<Output = ()> + Send>>>>>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let mut rx = rx.lock().await;
     let mut join_set = JoinSet::new();
     loop {
@@ -67,11 +67,13 @@ async fn init_screen(state_container: StateContainer) -> Result<(), Box<dyn std:
     enable_raw_mode()?;
     update_size(state_container.clone()).await?;
 
-    let stdout = state_container.get_state().stdout.clone();
+    let stdout = state_container.state().stdout.clone();
     let mut stdout = stdout.lock().await;
     stdout
         .write(SetAlternateScreenBuffer::enable().into())
         .await?;
+    stdout.write(AllMotionTracking::new(true).into()).await?;
+    stdout.write(SgrMouseHandling::new(true).into()).await?;
     stdout.flush().await?;
 
     Ok(())

@@ -9,8 +9,9 @@ use tokio::{
 };
 
 use crate::{
-    canvas::{Canvas, TerminalInfo, Vector2},
+    canvas::{Canvas, Rect, TerminalInfo, Vector2},
     draw::DrawMessage,
+    layout::get_span_dimensions,
     process::TerminalLike,
     span::Node,
 };
@@ -39,23 +40,39 @@ pub struct State {
     pub last_canvas: Arc<Mutex<Canvas>>,
     pub root_node: Arc<Mutex<Option<Node>>>,
     pub span_id_counter: AtomicUsize,
+    pub current_mouse_position: Arc<RwLock<Vector2>>,
     pub active_id: AtomicUsize,
 }
 
 impl State {
-    pub async fn get_active_process(
-        &self,
-    ) -> Result<Option<Arc<Mutex<Process>>>, Box<dyn std::error::Error>> {
+    pub async fn active_process(&self) -> Option<Arc<Mutex<Process>>> {
         let active_process_id = self.active_id.load(std::sync::atomic::Ordering::Relaxed);
         let lock = self.processes.lock().await;
         for process in lock.iter() {
             let lock = process.lock().await;
             if lock.span_id == active_process_id {
-                return Ok(Some(process.clone()));
+                return Some(process.clone());
             }
         }
 
-        Ok(None)
+        None
+    }
+    pub async fn active_terminal_info(&self) -> Option<Arc<Mutex<TerminalInfo>>> {
+        let active_process = self.active_process().await?;
+        let terminal_info = { active_process.lock().await.terminal_info.clone() };
+
+        Some(terminal_info)
+    }
+    pub async fn application_keypad_mode(&self) -> Option<bool> {
+        let terminal_info = self.active_terminal_info().await?;
+        let terminal_info = terminal_info.lock().await;
+        Some(terminal_info.application_keypad_mode())
+    }
+    pub async fn get_span_dimensions(&self, span_id: usize) -> Option<Rect> {
+        let root_node = self.root_node.lock().await;
+        let root_node = root_node.as_ref()?;
+        let size = self.size.read().await.to_owned();
+        get_span_dimensions(root_node, span_id, size)
     }
 }
 
@@ -75,6 +92,7 @@ impl State {
             root_node: Arc::new(Mutex::new(None)),
             span_id_counter: AtomicUsize::new(0),
             active_id: AtomicUsize::new(0),
+            current_mouse_position: Arc::new(RwLock::new(Vector2::default())),
         }
     }
 }
@@ -89,7 +107,7 @@ impl StateContainer {
         let state = Arc::new(state);
         StateContainer { state }
     }
-    pub fn get_state(&self) -> Arc<State> {
+    pub fn state(&self) -> Arc<State> {
         self.state.clone()
     }
 }

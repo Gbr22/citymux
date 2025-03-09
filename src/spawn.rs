@@ -14,25 +14,23 @@ use crate::{
     Vector2,
 };
 
-pub async fn create_span(
-    state_container: StateContainer,
-) -> Result<usize, Box<dyn std::error::Error>> {
+pub async fn create_span(state_container: StateContainer) -> anyhow::Result<usize> {
     let active_id = state_container
-        .get_state()
+        .state()
         .active_id
         .load(std::sync::atomic::Ordering::Relaxed);
     let new_id = state_container
-        .get_state()
+        .state()
         .span_id_counter
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         + 1;
     state_container
-        .get_state()
+        .state()
         .active_id
         .store(new_id, std::sync::atomic::Ordering::Relaxed);
     let root_rect = get_root_dimensions(state_container.clone()).await;
     {
-        let state = state_container.get_state();
+        let state = state_container.state();
         let mut root_guard = state.root_node.lock().await;
         let root = root_guard.as_mut();
         match root {
@@ -45,7 +43,7 @@ pub async fn create_span(
             Some(root) => match &root.data {
                 NodeData::Void => {
                     let container_id = state_container
-                        .get_state()
+                        .state()
                         .span_id_counter
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                         + 1;
@@ -72,39 +70,38 @@ pub async fn create_span(
                 NodeData::Span(span) => {
                     let active_sizes = get_span_dimensions(root, active_id, root_rect);
                     let Some(active_sizes) = active_sizes else {
-                        return Err("Could not find active sizes".into());
+                        return Err(anyhow::format_err!("Could not find active sizes"));
                     };
                     let result = root.find_by_id(active_id);
                     let (_, path) = match result {
                         Some(tuple) => tuple,
                         None => {
-                            return Err(format!(
+                            return Err(anyhow::format_err!(
                                 "Could not find active node with id: {}",
                                 active_id
-                            )
-                            .into());
+                            ));
                         }
                     };
                     let parent_id = path.last();
                     let Some(parent_id) = parent_id else {
-                        return Err("Could not find parent node id".into());
+                        return Err(anyhow::format_err!("Could not find parent node id"));
                     };
                     let parent_id = parent_id.to_owned();
                     let parent_sizes = get_span_dimensions(root, parent_id, root_rect);
                     let Some(parent_sizes) = parent_sizes else {
-                        return Err("Could not find parent sizes".into());
+                        return Err(anyhow::format_err!("Could not find parent sizes"));
                     };
                     let parent_clone = root.find_by_id(parent_id);
                     let (parent_clone, _) = match parent_clone {
                         Some(tuple) => tuple,
                         None => {
-                            return Err("Could not find parent node".into());
+                            return Err(anyhow::format_err!("Could not find parent node"));
                         }
                     };
                     let parent_clone = parent_clone.clone();
                     match parent_clone.data {
                         NodeData::Void => {
-                            Err(format!("Parent: {:?} is void", &parent_clone).into())
+                            Err(anyhow::format_err!("Parent: {:?} is void", &parent_clone))
                         }
                         NodeData::Span(span) => {
                             match span.direction {
@@ -121,13 +118,15 @@ pub async fn create_span(
                                     if active_sizes.size.y as f64 > new_width {
                                         let mut new_span = Span::new(SpanDirection::Vertical);
                                         let container_id = state_container
-                                            .get_state()
+                                            .state()
                                             .span_id_counter
                                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                                             + 1;
                                         let active_node = root.find_by_id(active_id);
                                         let Some(active_node) = active_node else {
-                                            return Err("Could not find active node".into());
+                                            return Err(anyhow::format_err!(
+                                                "Could not find active node"
+                                            ));
                                         };
                                         let active_node = active_node.0;
                                         new_span.children.push(
@@ -155,13 +154,15 @@ pub async fn create_span(
                                     if active_sizes.size.x as f64 > new_height {
                                         let mut new_span = Span::new(SpanDirection::Horizontal);
                                         let container_id = state_container
-                                            .get_state()
+                                            .state()
                                             .span_id_counter
                                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                                             + 1;
                                         let active_node = root.find_by_id(active_id);
                                         let Some(active_node) = active_node else {
-                                            return Err("Could not find active node".into());
+                                            return Err(anyhow::format_err!(
+                                                "Could not find active node"
+                                            ));
                                         };
                                         let active_node = active_node.0;
                                         new_span.children.push(
@@ -182,13 +183,13 @@ pub async fn create_span(
                             let (parent, _) = match parent {
                                 Some(tuple) => tuple,
                                 None => {
-                                    return Err("Could not find parent node".into());
+                                    return Err(anyhow::format_err!("Could not find parent node"));
                                 }
                             };
                             let span = match &mut parent.data {
                                 NodeData::Span(span) => span,
                                 _ => {
-                                    return Err("Parent is not a span".into());
+                                    return Err(anyhow::format_err!("Parent is not a span"));
                                 }
                             };
 
@@ -212,12 +213,13 @@ pub async fn create_span(
 
 pub async fn create_process(
     state_container: StateContainer,
-) -> Result<Arc<Mutex<Process>>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Arc<Mutex<Process>>> {
     let new_id = create_span(state_container.clone()).await?;
     let size = Vector2 { x: 1, y: 1 };
     let program = "cmd";
     let program = which(program)?.to_string_lossy().to_string();
-    let env = HashMap::new();
+    let mut env: HashMap<String, String> = HashMap::new();
+    env.insert("TERM".to_string(), "xterm-citymux".to_string());
 
     let result = spawn_interactive_process(&program, env, size).await?;
     let process = Process {
@@ -229,7 +231,7 @@ pub async fn create_process(
     };
 
     let process = Arc::new(Mutex::new(process));
-    let processes = state_container.get_state().processes.clone();
+    let processes = state_container.state().processes.clone();
     {
         let mut processes = processes.lock().await;
         let future = {
@@ -245,14 +247,19 @@ pub async fn create_process(
 
         processes.push(process.clone());
         {
-            let state = state_container.get_state();
+            let state = state_container.state();
             let locked = state.process_channel.lock().await;
             match locked.as_ref() {
                 Some(sender) => {
-                    sender.send(Box::pin(future)).await?;
+                    if let Err(err) = sender.send(Box::pin(future)).await {
+                        return Err(anyhow::format_err!(
+                            "Error sending to process channel: {:?}",
+                            err
+                        ));
+                    }
                 }
                 None => {
-                    return Err("No process channel".into());
+                    return Err(anyhow::format_err!("No process channel"));
                 }
             }
         }
@@ -263,10 +270,7 @@ pub async fn create_process(
     Ok(process)
 }
 
-pub fn remove_node(
-    root: &mut Node,
-    id: usize,
-) -> Result<Option<usize>, Box<dyn std::error::Error>> {
+pub fn remove_node(root: &mut Node, id: usize) -> anyhow::Result<Option<usize>> {
     if root.id == id {
         root.data = NodeData::Void;
         return Ok(None);
@@ -276,19 +280,19 @@ pub fn remove_node(
     let (_, path) = match result {
         Some(tuple) => tuple,
         None => {
-            return Err(format!("Could not find node with id: {}", id).into());
+            return Err(anyhow::format_err!("Could not find node with id: {}", id));
         }
     };
     let parent = path.last();
     let Some(parent) = parent else {
-        return Err("Could not find parent node id".into());
+        return Err(anyhow::format_err!("Could not find parent node id"));
     };
     let parent = parent.to_owned();
     let parent = root.find_by_id(parent);
     let (parent, _) = match parent {
         Some(tuple) => tuple,
         None => {
-            return Err("Could not find parent node".into());
+            return Err(anyhow::format_err!("Could not find parent node"));
         }
     };
     if let NodeData::Span(span) = &mut parent.data {
@@ -314,21 +318,19 @@ pub fn remove_node(
                 }
             }
             None => {
-                return Err("Could not find child index".into());
+                return Err(anyhow::format_err!("Could not find child index"));
             }
         };
     }
 
-    Err("Could not remove node".into())
+    Err(anyhow::format_err!("Could not remove node"))
 }
 
-pub async fn kill_active_span(
-    state_container: StateContainer,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn kill_active_span(state_container: StateContainer) -> Result<(), anyhow::Error> {
     tracing::debug!("Killing active span");
     let active_id = {
         state_container
-            .get_state()
+            .state()
             .active_id
             .load(std::sync::atomic::Ordering::Relaxed)
     };
@@ -339,7 +341,7 @@ pub async fn kill_active_span(
 pub async fn kill_span(
     state_container: StateContainer,
     span_id: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), anyhow::Error> {
     tracing::debug!("Killing span: {}", span_id);
     remove_node_from_state(state_container.clone(), span_id).await?;
     kill_process(state_container.clone(), span_id).await?;
@@ -349,7 +351,7 @@ pub async fn kill_span(
 }
 
 pub async fn kill_process(state_container: StateContainer, span_id: usize) -> anyhow::Result<()> {
-    let processes = state_container.get_state().processes.clone();
+    let processes = state_container.state().processes.clone();
     {
         let mut processes = processes.lock().await;
         let mut delete_index = None;
@@ -375,9 +377,9 @@ pub async fn kill_process(state_container: StateContainer, span_id: usize) -> an
 pub async fn remove_node_from_state(
     state_container: StateContainer,
     span_id: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     {
-        let state = state_container.get_state();
+        let state = state_container.state();
         let mut root_guard = state.root_node.lock().await;
         let root = root_guard.as_mut();
         match root {

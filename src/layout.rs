@@ -3,7 +3,12 @@ use crate::{
     span::{Node, NodeData, SpanDirection},
 };
 
-pub fn get_span_dimensions(node: &Node, span_id: usize, parent_dimensions: Rect) -> Option<Rect> {
+pub fn get_span_dimensions(
+    node: &Node,
+    span_id: usize,
+    parent_dimensions: impl Into<Rect>,
+) -> Option<Rect> {
+    let parent_dimensions = parent_dimensions.into();
     if node.id == span_id {
         return Some(parent_dimensions);
     }
