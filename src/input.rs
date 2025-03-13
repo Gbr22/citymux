@@ -144,7 +144,6 @@ impl Performer {
                                     char::from_u32(shifted_position.x as u32).unwrap_or_default(),
                                     char::from_u32(shifted_position.y as u32).unwrap_or_default()
                                 );
-                                tracing::debug!("Writing mouse data: {:?}", data);
                                 let data = data.as_bytes();
                                 let mut stdin = process.stdin.lock().await;
                                 stdin.write(data).await?;
@@ -156,7 +155,6 @@ impl Performer {
                                     "\x1b[<{};{};{}{}",
                                     button, shifted_position.x, shifted_position.y, command
                                 );
-                                tracing::debug!("Writing mouse data: {:?}", data);
                                 let data = data.as_bytes();
                                 let mut stdin = process.stdin.lock().await;
                                 stdin.write(data).await?;
@@ -171,7 +169,6 @@ impl Performer {
                                     char::from_u32(shifted_position.y as u32).unwrap_or_default(),
                                     command
                                 );
-                                tracing::debug!("Writing mouse data: {:?}", data);
                                 let data = data.as_bytes();
                                 let mut stdin = process.stdin.lock().await;
                                 stdin.write(data).await?;
@@ -246,12 +243,6 @@ impl vte::Perform for Performer {
         _ignore: bool,
         action: char,
     ) {
-        tracing::debug!(
-            "[CSI] Params: {:?}, int, {:?}, action: {:?}",
-            params,
-            intermediates,
-            action
-        );
         let is_mouse = action == 'M' || action == 'm';
         let is_release = action == 'm';
         let is_sgr = String::from_utf8_lossy(intermediates) == "<";
@@ -272,11 +263,17 @@ impl vte::Perform for Performer {
         }
         let state = self.state_container.clone();
         let owned_intermediates = intermediates.to_vec();
+        let owned_params: Vec<Vec<u16>> = params.iter().map(|e| e.to_vec()).collect();
 
-        let params: Vec<Vec<u16>> = params.iter().map(|e| e.to_vec()).collect();
+        tracing::debug!(
+            "[CSI] Params: {:?}, int: {:?}, action: {:?}",
+            owned_params,
+            owned_intermediates,
+            action
+        );
 
         self.run(|| async move {
-            let params_string: Vec<String> = params
+            let params_string: Vec<String> = owned_params
                 .iter()
                 .map(|e| {
                     let strings: Vec<String> = e.iter().map(|e| format!("{}", e)).collect();
@@ -308,6 +305,7 @@ impl vte::Perform for Performer {
             bytes.extend(action.as_bytes());
             write_input(state.clone(), &bytes, true).await
         });
+        
     }
 
     fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {

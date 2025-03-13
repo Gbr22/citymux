@@ -1,6 +1,6 @@
 use std::{
     pin::Pin,
-    sync::{atomic::AtomicUsize, Arc},
+    sync::{atomic::{AtomicBool, AtomicUsize}, Arc},
 };
 
 use tokio::{
@@ -37,7 +37,9 @@ pub struct State {
         >,
     >,
     pub draw_channel: Arc<Mutex<Option<tokio::sync::mpsc::Sender<DrawMessage>>>>,
-    pub last_canvas: Arc<Mutex<Canvas>>,
+    canvas_1: Arc<Mutex<Canvas>>,
+    canvas_2: Arc<Mutex<Canvas>>,
+    canvas_toggle: AtomicBool,
     pub root_node: Arc<Mutex<Option<Node>>>,
     pub span_id_counter: AtomicUsize,
     pub current_mouse_position: Arc<RwLock<Vector2>>,
@@ -45,6 +47,24 @@ pub struct State {
 }
 
 impl State {
+    pub fn get_last_canvas(&self) -> Arc<Mutex<Canvas>> {
+        if self.canvas_toggle.load(std::sync::atomic::Ordering::Relaxed) == true {
+            self.canvas_1.clone()
+        } else {
+            self.canvas_2.clone()
+        }
+    }
+    pub fn get_current_canvas(&self) -> Arc<Mutex<Canvas>> {
+        if self.canvas_toggle.load(std::sync::atomic::Ordering::Relaxed) == false {
+            self.canvas_1.clone()
+        } else {
+            self.canvas_2.clone()
+        }
+    }
+    pub fn swap_canvas(&self) {
+        self.canvas_toggle
+            .store(!self.canvas_toggle.load(std::sync::atomic::Ordering::Relaxed), std::sync::atomic::Ordering::Relaxed);
+    }
     pub async fn active_process(&self) -> Option<Arc<Mutex<Process>>> {
         let active_process_id = self.active_id.load(std::sync::atomic::Ordering::Relaxed);
         let lock = self.processes.lock().await;
@@ -81,15 +101,17 @@ impl State {
         State {
             stdin: Arc::new(Mutex::new(input)),
             stdout: Arc::new(Mutex::new(output)),
-            size: Arc::new(RwLock::new(Vector2::default())),
+            size: Arc::new(RwLock::new(Vector2::null())),
             processes: Arc::new(Mutex::new(Vec::new())),
             process_channel: Arc::new(Mutex::new(None)),
             draw_channel: Arc::new(Mutex::new(None)),
-            last_canvas: Arc::new(Mutex::new(Canvas::new(Vector2::new(0, 0)))),
+            canvas_1: Arc::new(Mutex::new(Canvas::new(Vector2::new(0, 0)))),
+            canvas_2: Arc::new(Mutex::new(Canvas::new(Vector2::new(0, 0)))),
+            canvas_toggle: AtomicBool::new(false),
             root_node: Arc::new(Mutex::new(None)),
             span_id_counter: AtomicUsize::new(0),
             active_id: AtomicUsize::new(0),
-            current_mouse_position: Arc::new(RwLock::new(Vector2::default())),
+            current_mouse_position: Arc::new(RwLock::new(Vector2::null())),
         }
     }
     pub fn set_active_span(&self, span_id: usize) {

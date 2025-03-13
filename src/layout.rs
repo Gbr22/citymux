@@ -20,7 +20,7 @@ pub fn get_span_dimensions(
                 total += child.size;
             }
 
-            let mut sizes = vec![Vector2::default(); span.children.len()];
+            let mut sizes = vec![Vector2::null(); span.children.len()];
             let mut remaining_size = parent_dimensions.size;
             for (index, child) in span.children.iter().enumerate() {
                 let size = child.size;

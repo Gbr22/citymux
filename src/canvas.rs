@@ -6,7 +6,7 @@ use vt100::Parser;
 
 use crate::encoding::{CsiSequence, OscSequence};
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, Eq)]
 pub struct Vector2 {
     pub x: isize,
     pub y: isize,
@@ -14,14 +14,14 @@ pub struct Vector2 {
 
 impl From<Vector2> for Rect {
     fn from(value: Vector2) -> Self {
-        Rect {
-            position: Vector2::default(),
-            size: value,
-        }
+        Rect::new(Vector2::null(), value)
     }
 }
 
 impl Vector2 {
+    pub fn null() -> Self {
+        Vector2::new(0, 0)
+    }
     pub fn max(self, other: Self) -> Self {
         Vector2 {
             x: self.x.max(other.x),
@@ -36,7 +36,7 @@ impl Vector2 {
     }
 }
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct Rect {
     pub position: Vector2,
     pub size: Vector2,
@@ -49,6 +49,13 @@ impl Rect {
             && vector.x < self.position.x + self.size.x
             && vector.y < self.position.y + self.size.y
     }
+    pub fn bottom_right(&self) -> Vector2 {
+        self.position + self.size
+    }
+}
+
+pub trait Drawable {
+    fn draw(&self, canvas: Box<&mut dyn CanvasLike>);
 }
 
 #[derive(Clone, Copy, Default, Debug)]
@@ -85,6 +92,7 @@ impl Sub<BorderSize> for Rect {
 
 impl Rect {
     pub fn new(position: Vector2, size: Vector2) -> Self {
+        let size = size.max(Vector2::null());
         Rect { position, size }
     }
 }
@@ -132,10 +140,119 @@ impl PartialEq for Vector2 {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct Canvas {
     cells: Vec<Cell>,
     size: Vector2,
+}
+
+pub struct CanvasView<'a> {
+    canvas: Box<&'a mut dyn CanvasLike>,
+    rect: Rect,
+}
+
+impl <'a> CanvasLike for CanvasView<'a> {
+    fn size(&self) -> Vector2 {
+        self.rect.size
+    }
+    fn set_size(&mut self, size: Vector2) {
+        self.rect.size = size;
+        self.canvas.set_size(self.rect.bottom_right().max(self.canvas.size()));
+    }
+    
+    fn get_cell(&self, position: Vector2) -> Cell {
+        if !self.rect.contains(position) {
+            return Cell::default();
+        }
+        let position = position - self.rect.position;
+        self.canvas.get_cell(position)
+    }
+    
+    fn set_cell(&mut self, position: Vector2, cell: Cell) {
+        if !self.rect.contains(position) {
+            return;
+        }
+        let position = position - self.rect.position;
+        self.canvas.set_cell(position, cell);
+    }
+    
+    fn iter_mut_cells(&mut self) -> std::slice::IterMut<'_, Cell> {
+        self.canvas.iter_mut_cells()
+    }
+
+    fn to_sub_view(&mut self, rect: Rect) -> CanvasView {
+        CanvasView { rect, canvas: Box::new(self) }
+    }
+}
+
+pub trait CanvasLike {
+    fn size(&self) -> Vector2;
+    fn set_size(&mut self, size: Vector2);
+    fn get_cell(&self, position: Vector2) -> Cell;
+    fn set_cell(&mut self, position: Vector2, cell: Cell);
+    fn iter_mut_cells(&mut self) -> std::slice::IterMut<'_, Cell>;
+    fn to_sub_view(&mut self, rect: Rect) -> CanvasView;
+    fn to_view(&mut self) -> CanvasView {
+        self.to_sub_view(Rect::new(Vector2::null(), self.size()))
+    }
+    fn put_canvas(&mut self, canvas: Box<&dyn CanvasLike>, position: Vector2) {
+        for y in 0..canvas.size().y {
+            for x in 0..canvas.size().x {
+                let pos = Vector2::new(x, y);
+                let cell = canvas.get_cell(pos);
+                self.set_cell(pos + position, cell);
+            }
+        }
+    }
+    fn draw(&mut self, drawable: Box<&dyn Drawable>) where Self: Sized {
+        drawable.draw(Box::new(self));
+    }
+    fn draw_at(&mut self, drawable: Box<&dyn Drawable>, position: Vector2) where Self: Sized {
+        self.draw_in(drawable, Rect::new(position, self.size() - position));
+    }
+    fn draw_in(&mut self, drawable: Box<&dyn Drawable>, rect: Rect) where Self: Sized {
+        let mut view = self.to_sub_view(rect);
+        drawable.draw(Box::new(&mut view));
+    }
+}
+
+impl <'a> Into<Box<&'a dyn CanvasLike>> for &'a Canvas {
+    fn into(self) -> Box<&'a dyn CanvasLike> {
+        Box::new(self)
+    }
+}
+
+impl <'a> Into<Box<&'a dyn CanvasLike>> for &'a mut Canvas {
+    fn into(self) -> Box<&'a dyn CanvasLike> {
+        Box::new(self)
+    }
+}
+
+#[derive(Debug)]
+pub struct DrawableStr<'a> {
+    string: &'a str,
+    style: Style
+}
+
+impl <'a> DrawableStr<'a> {
+    pub fn new(string: &'a str, style: Style) -> Self {
+        DrawableStr::<'a> { string, style }
+    }
+    pub fn size(&self) -> Vector2 {
+        Vector2::new(self.string.len() as isize, 1)
+    }
+}
+
+impl Drawable for DrawableStr<'_> {
+    fn draw(&self, canvas: Box<&mut dyn CanvasLike>) {
+        let str = self.string;
+        let chars = str.chars().collect::<Vec<char>>();
+        let mut x = 0;
+        for c in chars {
+            canvas.set_cell((x, 0).into(), Cell::new_styled(c, self.style.clone()));
+            x += 1;
+        }
+    }
 }
 
 impl Debug for Canvas {
@@ -145,7 +262,7 @@ impl Debug for Canvas {
         for y in 0..self.size.y {
             let mut row_content = String::new();
             for x in 0..self.size.x {
-                row_content += &self.get_cell((x, y)).to_string();
+                row_content += &self.get_cell((x, y).into()).to_string();
             }
             s.field(&format!("row_{}", y), &row_content);
         }
@@ -153,7 +270,7 @@ impl Debug for Canvas {
         let mut map = HashMap::new();
         for y in 0..self.size.y {
             for x in 0..self.size.x {
-                let cell = self.get_cell((x, y));
+                let cell = self.get_cell((x, y).into());
                 let key = (x, y);
                 map.insert(key, cell);
             }
@@ -163,17 +280,14 @@ impl Debug for Canvas {
     }
 }
 
-impl Canvas {
-    pub fn iter_mut_cells(&mut self) -> std::slice::IterMut<'_, Cell> {
+impl CanvasLike for Canvas {
+    fn iter_mut_cells(&mut self) -> std::slice::IterMut<'_, Cell> {
         self.cells.as_mut_slice().iter_mut()
     }
-}
-
-impl Canvas {
-    pub fn size(&self) -> Vector2 {
+    fn size(&self) -> Vector2 {
         self.size
     }
-    pub fn set_size(&mut self, size: Vector2) {
+    fn set_size(&mut self, size: Vector2) {
         if self.size == size {
             return;
         }
@@ -188,58 +302,11 @@ impl Canvas {
                     continue;
                 }
                 let cell = old_cells[index].clone();
-                self.set_cell((x, y), cell);
+                self.set_cell((x, y).into(), cell);
             }
         }
     }
-}
-
-impl PartialEq for Canvas {
-    fn eq(&self, other: &Self) -> bool {
-        self.cells == other.cells && self.size == other.size
-    }
-}
-
-impl From<String> for Canvas {
-    fn from(value: String) -> Self {
-        Canvas::from(value.as_str())
-    }
-}
-impl From<&str> for Canvas {
-    fn from(value: &str) -> Self {
-        let chars = value.chars().collect::<Vec<char>>();
-        let mut canvas = Canvas::new(Vector2 {
-            x: chars.len() as isize,
-            y: 1,
-        });
-        let mut x = 0;
-        for c in value.chars() {
-            canvas.set_cell((x, 0), Cell::new_styled(c, Style::default()));
-            x += 1;
-        }
-        canvas
-    }
-}
-
-impl Canvas {
-    pub fn new(size: Vector2) -> Self {
-        Self::new_filled(size, Cell::default())
-    }
-    pub fn new_filled(size: Vector2, cell: Cell) -> Self {
-        let cells = vec![cell; isize::abs(size.x * size.y) as usize];
-        Canvas { cells, size }
-    }
-    pub fn put_canvas(&mut self, canvas: &Canvas, position: Vector2) {
-        for y in 0..canvas.size.y {
-            for x in 0..canvas.size.x {
-                let pos = Vector2::new(x, y);
-                let cell = canvas.get_cell(pos);
-                self.set_cell(pos + position, cell);
-            }
-        }
-    }
-    pub fn get_cell(&self, position: impl Into<Vector2>) -> Cell {
-        let position = position.into();
+    fn get_cell(&self, position: Vector2) -> Cell {
         let x = position.x;
         let y = position.y;
 
@@ -256,9 +323,7 @@ impl Canvas {
 
         self.cells[index as usize].clone()
     }
-
-    pub fn set_cell(&mut self, position: impl Into<Vector2>, cell: Cell) {
-        let position = position.into();
+    fn set_cell(&mut self, position: Vector2, cell: Cell) {
         let x = position.x;
         let y = position.y;
 
@@ -281,6 +346,51 @@ impl Canvas {
         }
 
         self.cells[index as usize] = cell;
+    }
+    fn to_sub_view(&mut self, rect: Rect) -> CanvasView {
+        let corner = rect.bottom_right();
+        self.set_size(self.size.max(corner));
+        CanvasView { canvas: Box::new(self), rect }
+    }
+}
+
+impl From<String> for Canvas {
+    fn from(value: String) -> Self {
+        Canvas::from(value.as_str())
+    }
+}
+
+impl <T: AsRef<str>> Drawable for T {
+    fn draw(&self, canvas: Box<&mut dyn CanvasLike>) {
+        let str = self.as_ref();
+        let chars = str.chars().collect::<Vec<char>>();
+        let mut x = 0;
+        for c in chars {
+            canvas.set_cell((x, 0).into(), Cell::new_styled(c, Style::default()));
+            x += 1;
+        }
+    }
+}
+
+impl From<&str> for Canvas {
+    fn from(value: &str) -> Self {
+        let chars = value.chars().collect::<Vec<char>>();
+        let mut canvas = Canvas::new(Vector2 {
+            x: chars.len() as isize,
+            y: 1,
+        });
+        canvas.draw(Box::new(&value as &dyn Drawable));
+        canvas
+    }
+}
+
+impl Canvas {
+    pub fn new(size: Vector2) -> Self {
+        Self::new_filled(size, Cell::default())
+    }
+    pub fn new_filled(size: Vector2, cell: Cell) -> Self {
+        let cells = vec![cell; isize::abs(size.x * size.y) as usize];
+        Canvas { cells, size }
     }
 }
 
@@ -373,14 +483,14 @@ impl TerminalInfo {
     pub fn is_cursor_visible(&self) -> bool {
         !self.parser.screen().hide_cursor()
     }
-    pub fn canvas(&self) -> Canvas {
+    pub fn draw(&self, canvas: &mut impl CanvasLike) {
         let screen = self.parser.screen();
-
         let (height, width) = screen.size();
-        let mut canvas = Canvas::new(Vector2::new(width as isize, height as isize));
+        let size = Vector2::new(width as isize, height as isize);
+        canvas.set_size(size);
         for y in 0..height {
             for x in 0..width {
-                let position = (x as isize, y as isize);
+                let position = (x as isize, y as isize).into();
                 let cell = screen.cell(y, x);
                 let Some(cell) = cell else {
                     let style = Style::default();
@@ -403,12 +513,16 @@ impl TerminalInfo {
                 canvas.set_cell(position, cell);
             }
         }
+    }
+    pub fn canvas(&self) -> Canvas {
+        let mut canvas = Canvas::default();
+        self.draw(&mut canvas);
 
         canvas
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Style {
     foreground_color: Color,
     background_color: Color,
@@ -447,7 +561,7 @@ impl From<Style> for Vec<u8> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Color {
     color: ColorEnum,
 }
@@ -475,13 +589,14 @@ impl Color {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ColorEnum {
     Default,
     OneByte(u8),
     Rgb(u8, u8, u8),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ColorType {
     Foreground,
     Background,
@@ -537,12 +652,12 @@ impl Color {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum CellValueEnum {
     String(String),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CellValue {
     value: CellValueEnum,
 }
@@ -563,7 +678,7 @@ impl<T: Into<String>> From<T> for CellValue {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cell {
     pub value: CellValue,
     pub style: Style,
@@ -597,12 +712,6 @@ impl Cell {
         match &self.value.value {
             CellValueEnum::String(value) => value.clone(),
         }
-    }
-}
-
-impl PartialEq for Cell {
-    fn eq(&self, other: &Self) -> bool {
-        self.value == other.value && self.style == other.style
     }
 }
 

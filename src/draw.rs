@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::{io::AsyncWriteExt, sync::Mutex, time::MissedTickBehavior};
 
 use crate::{
-    canvas::{Canvas, Cell, Color, Rect, Style, Vector2},
+    canvas::{Canvas, CanvasLike, CanvasView, Cell, Color, Rect, Style, Vector2},
     escape_codes::{CursorForward, EraseCharacter, MoveCursor, ResetStyle, SetCursorVisibility},
     layout::get_span_dimensions,
     size::update_size,
@@ -30,20 +30,19 @@ pub async fn draw_node_content(
     state_container: StateContainer,
     node: &Node,
     process: Arc<Mutex<Process>>,
-    output_canvas: &mut Canvas,
+    output_canvas: &mut impl CanvasLike,
 ) -> anyhow::Result<()> {
     let process = process.lock().await;
     let size = output_canvas.size();
     let mut terminal = process.terminal_info.lock().await;
     terminal.set_size(size);
-    let canvas = terminal.canvas();
     {
         let mut terminal = process.terminal.lock().await;
         if terminal.size() != size {
             terminal.set_size(size)?;
         }
     }
-    output_canvas.put_canvas(&canvas, Vector2::new(0, 0));
+    terminal.draw(output_canvas);
 
     Ok(())
 }
@@ -52,7 +51,7 @@ pub async fn draw_node(
     state_container: StateContainer,
     root: &Node,
     node: &Node,
-    canvas: &mut Canvas,
+    canvas: &mut impl CanvasLike,
 ) -> anyhow::Result<()> {
     match node.data {
         NodeData::Span(ref span) => {
@@ -136,15 +135,16 @@ pub async fn draw_node(
                         isize::min(title.size().x, canvas.size().x - 2),
                         1,
                     ));
-                    canvas.put_canvas(&title, Vector2::new(1, 0));
+                    canvas.put_canvas((&title).into(), Vector2::new(1, 0));
                 }
+                let mut proc_canvas = proc_canvas.to_view();
                 let future =
                     draw_node_content(state_container.clone(), node, process, &mut proc_canvas);
                 Box::pin(future).await?;
             }
 
-            parent_canvas.put_canvas(canvas, dimensions.position);
-            parent_canvas.put_canvas(&proc_canvas, dimensions.position + Vector2::new(1, 1));
+            parent_canvas.put_canvas(canvas.into(), dimensions.position);
+            parent_canvas.put_canvas((&proc_canvas).into(), dimensions.position + Vector2::new(1, 1));
         }
     };
 
@@ -155,16 +155,14 @@ pub async fn draw(state_container: StateContainer) -> anyhow::Result<()> {
     let stdout = state_container.state().stdout.clone();
     let mut stdout = stdout.lock().await;
 
-    let size: Vector2 = *state_container.state().size.read().await;
-    let mut new_canvas = Canvas::new_filled(
-        size,
-        Cell::new_styled(
-            "#",
-            Style::default()
-                .with_background_color(Color::default())
-                .with_foreground_color(Color::new_one_byte(8 + 7)),
-        ),
-    );
+    let state = state_container.state();
+
+    let size: Vector2 = *state.size.read().await;
+    let last_canvas = state.get_last_canvas();
+    let last_canvas = last_canvas.lock().await;
+    let new_canvas = state.get_current_canvas();
+    let mut new_canvas = new_canvas.lock().await;
+    new_canvas.set_size(size);
 
     {
         let state = state_container.state();
@@ -174,7 +172,7 @@ pub async fn draw(state_container: StateContainer) -> anyhow::Result<()> {
             let mut canvas = Canvas::new_filled(size, Cell::new_styled(" ", Style::default()));
             let future = draw_node(state_container.clone(), root, root, &mut canvas);
             Box::pin(future).await?;
-            new_canvas.put_canvas(&canvas, Vector2::new(0, 0));
+            new_canvas.put_canvas((&canvas).into(), Vector2::new(0, 0));
         }
     }
 
@@ -182,8 +180,6 @@ pub async fn draw(state_container: StateContainer) -> anyhow::Result<()> {
     to_write.extend(Into::<&[u8]>::into(ResetStyle::default()));
     to_write.extend(Into::<&[u8]>::into(SetCursorVisibility::new(false)));
     {
-        let state = state_container.state();
-        let mut last_canvas = state.last_canvas.lock().await;
         let mut last_style = Style::default();
 
         if last_canvas.ne(&new_canvas) {
@@ -191,9 +187,9 @@ pub async fn draw(state_container: StateContainer) -> anyhow::Result<()> {
                 to_write.extend(&Into::<Vec<u8>>::into(MoveCursor::new(y, 0)));
                 let mut empty_count = 0;
                 for x in 0..new_canvas.size().x {
-                    let cell = new_canvas.get_cell((x, y));
+                    let cell = new_canvas.get_cell((x, y).into());
                     let has_next = x + 1 < new_canvas.size().x;
-                    let next = new_canvas.get_cell((x + 1, y));
+                    let next = new_canvas.get_cell((x + 1, y).into());
 
                     let is_empty_optimization_enabled = true;
                     if cell.is_empty() && is_empty_optimization_enabled {
@@ -226,7 +222,7 @@ pub async fn draw(state_container: StateContainer) -> anyhow::Result<()> {
                 to_write.extend("\r".as_bytes());
             }
             to_write.extend(Into::<&[u8]>::into(ResetStyle::default()));
-            *last_canvas = new_canvas;
+            state.swap_canvas();
         }
     }
 
