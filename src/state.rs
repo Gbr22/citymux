@@ -44,6 +44,7 @@ pub struct State {
     pub span_id_counter: AtomicUsize,
     pub current_mouse_position: Arc<RwLock<Vector2>>,
     pub active_id: AtomicUsize,
+    pub draw_lock: Arc<Mutex<()>>,
 }
 
 impl State {
@@ -112,6 +113,7 @@ impl State {
             span_id_counter: AtomicUsize::new(0),
             active_id: AtomicUsize::new(0),
             current_mouse_position: Arc::new(RwLock::new(Vector2::null())),
+            draw_lock: Arc::new(Mutex::new(())),
         }
     }
     pub fn set_active_span(&self, span_id: usize) {

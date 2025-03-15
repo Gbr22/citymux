@@ -140,7 +140,7 @@ pub async fn draw_node(
     Ok(())
 }
 
-pub async fn draw(state_container: StateContainer) -> anyhow::Result<()> {
+async fn draw_inner(state_container: StateContainer) -> anyhow::Result<()> {
     let stdout = state_container.state().stdout.clone();
     let mut stdout = stdout.lock().await;
 
@@ -260,6 +260,11 @@ pub async fn draw(state_container: StateContainer) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn draw(state_container: StateContainer) -> anyhow::Result<()> {
+    let _ = state_container.state().draw_lock.lock().await;
+    draw_inner(state_container).await
+}
+
 #[derive(Default)]
 pub struct DrawMessage {
     _private: (),
@@ -285,10 +290,17 @@ async fn channel_draw_loop(state_container: StateContainer) -> anyhow::Result<()
         rx
     };
 
+    update_size(state_container.clone()).await?;
+    draw(state_container.clone()).await?;
     loop {
+        rx.recv().await;
+        {
+            if state_container.state().draw_lock.try_lock().is_err() {
+                continue;
+            }
+        }
         update_size(state_container.clone()).await?;
         draw(state_container.clone()).await?;
-        rx.recv().await;
     }
 }
 
