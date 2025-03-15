@@ -2,6 +2,7 @@ use std::fs::OpenOptions;
 
 use args::CliArgs;
 use clap::Parser;
+use config::get_config;
 use exit::exit;
 use startup::run_application;
 use state::{State, StateContainer};
@@ -24,6 +25,7 @@ mod tty;
 mod tty_windows;
 mod term;
 mod args;
+mod config;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -45,15 +47,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .finish();
         tracing::subscriber::set_global_default(subscriber)?;
     }
-    
+
     tracing::info!("Starting up");
+    let config = get_config();
+    tracing::debug!("Current config: {:?}", config);
 
     std::panic::set_hook(Box::new(move |info| {
         tracing::error!("Panic at {:?}: {:?}", info.location(), info.payload());
         exit(1);
     }));
 
-    let state_container = StateContainer::new(State::new(args,io::stdin(), io::stdout()));
+    let state_container = StateContainer::new(State::new(args,config,io::stdin(), io::stdout()));
     if let Err(e) = run_application(state_container).await {
         tracing::error!("Error: {}", e);
         exit(1);

@@ -209,7 +209,9 @@ pub async fn create_process(
 ) -> anyhow::Result<Arc<Mutex<Process>>> {
     let new_id = create_span(state_container.clone()).await?;
     let size = Vector2 { x: 1, y: 1 };
-    let program = "cmd";
+    let program = {
+        state_container.state().config.read().await.default_shell.clone()
+    };
     let program = which(program)?.to_string_lossy().to_string();
     let mut env: HashMap<String, String> = HashMap::new();
     env.insert("TERM".to_string(), "xterm-citymux".to_string());

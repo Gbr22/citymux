@@ -10,7 +10,7 @@ use tokio::{
 };
 
 use crate::{
-    args::CliArgs, draw::DrawMessage, layout::get_span_dimensions, process::TerminalLike, span::Node, term::TerminalInfo
+    args::CliArgs, config::Config, draw::DrawMessage, layout::get_span_dimensions, process::TerminalLike, span::Node, term::TerminalInfo
 };
 
 pub struct Process {
@@ -23,6 +23,7 @@ pub struct Process {
 
 pub struct State {
     pub args: CliArgs,
+    pub config: Arc<RwLock<Config>>,
     pub stdin: Arc<Mutex<dyn AsyncRead + Unpin + Send + Sync>>,
     pub stdout: Arc<Mutex<dyn AsyncWrite + Unpin + Send + Sync>>,
     pub size: Arc<RwLock<Vector2>>,
@@ -95,11 +96,13 @@ impl State {
     }
     pub fn new(
         args: CliArgs,
+        config: Config,
         input: impl AsyncRead + Unpin + Send + Sync + 'static,
         output: impl AsyncWrite + Unpin + Send + Sync + 'static,
     ) -> Self {
         State {
             args,
+            config: Arc::new(RwLock::new(config)),
             stdin: Arc::new(Mutex::new(input)),
             stdout: Arc::new(Mutex::new(output)),
             size: Arc::new(RwLock::new(Vector2::null())),
