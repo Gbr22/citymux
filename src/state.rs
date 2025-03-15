@@ -28,7 +28,7 @@ pub struct State {
     pub stdin: Arc<Mutex<dyn AsyncRead + Unpin + Send + Sync>>,
     pub stdout: Arc<Mutex<dyn AsyncWrite + Unpin + Send + Sync>>,
     pub size: Arc<RwLock<Vector2>>,
-    pub processes: Arc<Mutex<Vec<Arc<Mutex<Process>>>>>,
+    pub processes: Arc<RwLock<Vec<Arc<Mutex<Process>>>>>,
     pub process_channel: Arc<
         Mutex<
             Option<
@@ -40,7 +40,7 @@ pub struct State {
     canvas_1: Arc<Mutex<Canvas>>,
     canvas_2: Arc<Mutex<Canvas>>,
     canvas_toggle: AtomicBool,
-    pub root_node: Arc<Mutex<Option<Node>>>,
+    pub root_node: Arc<RwLock<Option<Node>>>,
     pub span_id_counter: AtomicUsize,
     pub current_mouse_position: Arc<RwLock<Vector2>>,
     pub active_id: AtomicUsize,
@@ -68,7 +68,7 @@ impl State {
     }
     pub async fn active_process(&self) -> Option<Arc<Mutex<Process>>> {
         let active_process_id = self.active_id.load(std::sync::atomic::Ordering::Relaxed);
-        let lock = self.processes.lock().await;
+        let lock = self.processes.read().await;
         for process in lock.iter() {
             let lock = process.lock().await;
             if lock.span_id == active_process_id {
@@ -90,7 +90,7 @@ impl State {
         Some(terminal_info.application_keypad_mode())
     }
     pub async fn get_span_dimensions(&self, span_id: usize) -> Option<Rect> {
-        let root_node = self.root_node.lock().await;
+        let root_node = self.root_node.read().await;
         let root_node = root_node.as_ref()?;
         let size = self.size.read().await.to_owned();
         get_span_dimensions(root_node, span_id, size)
@@ -103,13 +103,13 @@ impl State {
             stdin: Arc::new(Mutex::new(input)),
             stdout: Arc::new(Mutex::new(output)),
             size: Arc::new(RwLock::new(Vector2::null())),
-            processes: Arc::new(Mutex::new(Vec::new())),
+            processes: Arc::new(RwLock::new(Vec::new())),
             process_channel: Arc::new(Mutex::new(None)),
             draw_channel: Arc::new(Mutex::new(None)),
             canvas_1: Arc::new(Mutex::new(Canvas::new(Vector2::new(0, 0)))),
             canvas_2: Arc::new(Mutex::new(Canvas::new(Vector2::new(0, 0)))),
             canvas_toggle: AtomicBool::new(false),
-            root_node: Arc::new(Mutex::new(None)),
+            root_node: Arc::new(RwLock::new(None)),
             span_id_counter: AtomicUsize::new(0),
             active_id: AtomicUsize::new(0),
             current_mouse_position: Arc::new(RwLock::new(Vector2::null())),

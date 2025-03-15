@@ -31,7 +31,7 @@ pub async fn create_span(state_container: StateContainer) -> anyhow::Result<usiz
     let root_rect = get_root_dimensions(state_container.clone()).await;
     {
         let state = state_container.state();
-        let mut root_guard = state.root_node.lock().await;
+        let mut root_guard = state.root_node.write().await;
         let root = root_guard.as_mut();
         match root {
             None => {
@@ -233,7 +233,7 @@ pub async fn create_process(
     let process = Arc::new(Mutex::new(process));
     let processes = state_container.state().processes.clone();
     {
-        let mut processes = processes.lock().await;
+        let mut processes = processes.write().await;
         let future = {
             let process = process.clone();
             let state_container = state_container.clone();
@@ -353,7 +353,7 @@ pub async fn kill_span(
 pub async fn kill_process(state_container: StateContainer, span_id: usize) -> anyhow::Result<()> {
     let processes = state_container.state().processes.clone();
     {
-        let mut processes = processes.lock().await;
+        let mut processes = processes.write().await;
         let mut delete_index = None;
         let mut index: usize = 0;
         for process in &*processes {
@@ -380,7 +380,7 @@ pub async fn remove_node_from_state(
 ) -> anyhow::Result<()> {
     {
         let state = state_container.state();
-        let mut root_guard = state.root_node.lock().await;
+        let mut root_guard = state.root_node.write().await;
         let root = root_guard.as_mut();
         match root {
             None => {

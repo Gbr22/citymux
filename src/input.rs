@@ -94,7 +94,7 @@ impl Performer {
             let mouse_position = mouse_position.deref_mut();
             *mouse_position = Vector2::new(x as isize, y as isize);
 
-            let processess = state.processes.lock().await;
+            let processess = state.processes.read().await;
             for process in processess.iter() {
                 let process = process.clone();
                 let process = process.lock().await;

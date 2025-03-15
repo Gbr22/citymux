@@ -15,7 +15,7 @@ pub async fn find_process_by_id(
     state_container: StateContainer,
     id: usize,
 ) -> Option<Arc<Mutex<Process>>> {
-    let processes = state_container.state().processes.lock().await.clone();
+    let processes = state_container.state().processes.read().await.clone();
     for process in processes {
         let process_inner = process.lock().await;
         if process_inner.span_id == id {
@@ -155,7 +155,7 @@ async fn draw_inner(state_container: StateContainer) -> anyhow::Result<()> {
 
     {
         let state = state_container.state();
-        let root = state.root_node.lock().await;
+        let root = state.root_node.read().await;
         let root = root.as_ref();
         if let Some(root) = root {
             let mut view = new_canvas.to_view();
@@ -233,7 +233,7 @@ async fn draw_inner(state_container: StateContainer) -> anyhow::Result<()> {
             let terminal = process.terminal_info.lock().await;
             if terminal.is_cursor_visible() {
                 let state = state_container.state();
-                let root = state.root_node.lock().await;
+                let root = state.root_node.read().await;
                 let root = root.as_ref();
                 if let Some(root) = root {
                     let span = get_span_dimensions(
@@ -309,6 +309,11 @@ pub async fn timeout_draw_loop(state_container: StateContainer) -> anyhow::Resul
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         interval.tick().await;
+        {
+            if state_container.state().draw_lock.try_lock().is_err() {
+                continue;
+            }
+        }
         update_size(state_container.clone()).await?;
         draw(state_container.clone()).await?;
     }
