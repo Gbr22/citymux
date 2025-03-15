@@ -44,13 +44,22 @@ pub struct Rect {
 
 impl Rect {
     pub fn contains(&self, vector: Vector2) -> bool {
-        vector.x >= self.position.x
-            && vector.y >= self.position.y
-            && vector.x < self.position.x + self.size.x
-            && vector.y < self.position.y + self.size.y
+        vector.x >= self.position().x
+            && vector.y >= self.position().y
+            && vector.x < self.position().x + self.size().x
+            && vector.y < self.position().y + self.size().y
+    }
+    pub fn position(&self) -> Vector2 {
+        self.position
+    }
+    pub fn top_left(&self) -> Vector2 {
+        self.position()
     }
     pub fn bottom_right(&self) -> Vector2 {
-        self.position + self.size
+        self.position() + self.size()
+    }
+    pub fn size(&self) -> Vector2 {
+        self.size
     }
 }
 
@@ -151,6 +160,18 @@ pub struct CanvasView<'a> {
     rect: Rect,
 }
 
+impl<'a> CanvasView<'a> {
+    fn is_position_in_rect(&self, position: Vector2) -> bool {
+        if position.x < 0 || position.y < 0 {
+            return false;
+        }
+        if position.x >= self.rect.size.x || position.y >= self.rect.size.y {
+            return false;
+        }
+        true
+    }
+}
+
 impl <'a> CanvasLike for CanvasView<'a> {
     fn size(&self) -> Vector2 {
         self.rect.size
@@ -159,27 +180,25 @@ impl <'a> CanvasLike for CanvasView<'a> {
         self.rect.size = size;
         self.canvas.set_size(self.rect.bottom_right().max(self.canvas.size()));
     }
-    
     fn get_cell(&self, position: Vector2) -> Cell {
-        if !self.rect.contains(position) {
+        if !self.is_position_in_rect(position) {
             return Cell::default();
         }
-        let position = position - self.rect.position;
+        let position = position + self.rect.top_left();
         self.canvas.get_cell(position)
     }
     
     fn set_cell(&mut self, position: Vector2, cell: Cell) {
-        if !self.rect.contains(position) {
+        if !self.is_position_in_rect(position) {
             return;
         }
-        let position = position - self.rect.position;
+        let position = position + self.rect.top_left();
         self.canvas.set_cell(position, cell);
     }
     
     fn iter_mut_cells(&mut self) -> std::slice::IterMut<'_, Cell> {
         self.canvas.iter_mut_cells()
     }
-
     fn to_sub_view(&mut self, rect: Rect) -> CanvasView {
         CanvasView { rect, canvas: Box::new(self) }
     }
@@ -194,15 +213,6 @@ pub trait CanvasLike {
     fn to_sub_view(&mut self, rect: Rect) -> CanvasView;
     fn to_view(&mut self) -> CanvasView {
         self.to_sub_view(Rect::new(Vector2::null(), self.size()))
-    }
-    fn put_canvas(&mut self, canvas: Box<&dyn CanvasLike>, position: Vector2) {
-        for y in 0..canvas.size().y {
-            for x in 0..canvas.size().x {
-                let pos = Vector2::new(x, y);
-                let cell = canvas.get_cell(pos);
-                self.set_cell(pos + position, cell);
-            }
-        }
     }
     fn draw(&mut self, drawable: Box<&dyn Drawable>) where Self: Sized {
         drawable.draw(Box::new(self));
@@ -354,12 +364,6 @@ impl CanvasLike for Canvas {
     }
 }
 
-impl From<String> for Canvas {
-    fn from(value: String) -> Self {
-        Canvas::from(value.as_str())
-    }
-}
-
 impl <T: AsRef<str>> Drawable for T {
     fn draw(&self, canvas: Box<&mut dyn CanvasLike>) {
         let str = self.as_ref();
@@ -369,18 +373,6 @@ impl <T: AsRef<str>> Drawable for T {
             canvas.set_cell((x, 0).into(), Cell::new_styled(c, Style::default()));
             x += 1;
         }
-    }
-}
-
-impl From<&str> for Canvas {
-    fn from(value: &str) -> Self {
-        let chars = value.chars().collect::<Vec<char>>();
-        let mut canvas = Canvas::new(Vector2 {
-            x: chars.len() as isize,
-            y: 1,
-        });
-        canvas.draw(Box::new(&value as &dyn Drawable));
-        canvas
     }
 }
 

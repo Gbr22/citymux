@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::{io::AsyncWriteExt, sync::Mutex, time::MissedTickBehavior};
 
 use crate::{
-    canvas::{Canvas, CanvasLike, CanvasView, Cell, Color, Rect, Style, Vector2},
+    canvas::{Canvas, CanvasLike, CanvasView, Cell, Color, DrawableStr, Rect, Style, Vector2},
     escape_codes::{CursorForward, EraseCharacter, MoveCursor, ResetStyle, SetCursorVisibility},
     layout::get_span_dimensions,
     size::update_size,
@@ -75,7 +75,7 @@ pub async fn draw_node(
                 return Err(anyhow::format_err!("Could not find dimensions of span"));
             };
             let parent_canvas = canvas;
-            let canvas = &mut Canvas::new(dimensions.size);
+            let mut canvas = parent_canvas.to_sub_view(dimensions);
 
             let is_active = state_container
                 .state()
@@ -118,33 +118,22 @@ pub async fn draw_node(
                 bottom_right,
             );
 
-            let mut proc_canvas = Canvas::new(canvas.size() - Vector2::new(2, 2));
             let process = find_process_by_id(state_container.clone(), node.id).await;
             if let Some(process) = process {
                 {
                     let process = process.lock().await;
                     let terminal_info = process.terminal_info.lock().await;
                     let title = format!("[{}]", terminal_info.title());
-                    let mut title: Canvas = title.into();
-                    title.iter_mut_cells().for_each(|cell| {
-                        cell.style = Style::default()
-                            .with_background_color(highlight_color.clone())
-                            .with_foreground_color(Color::new_one_byte(0));
-                    });
-                    title.set_size(Vector2::new(
-                        isize::min(title.size().x, canvas.size().x - 2),
-                        1,
-                    ));
-                    canvas.put_canvas((&title).into(), Vector2::new(1, 0));
+                    let title = DrawableStr::new(&title, Style::default()
+                    .with_background_color(highlight_color.clone())
+                    .with_foreground_color(Color::new_one_byte(0)));
+                    canvas.draw_in(Box::new(&title), Rect::new(Vector2::new(1, 0), Vector2::new(canvas.size().x-2, 1)));
                 }
-                let mut proc_canvas = proc_canvas.to_view();
+                let mut proc_canvas = canvas.to_sub_view(Rect::new(Vector2::new(1, 1), canvas.size() - Vector2::new(2, 2)));
                 let future =
                     draw_node_content(state_container.clone(), node, process, &mut proc_canvas);
                 Box::pin(future).await?;
             }
-
-            parent_canvas.put_canvas(canvas.into(), dimensions.position);
-            parent_canvas.put_canvas((&proc_canvas).into(), dimensions.position + Vector2::new(1, 1));
         }
     };
 
@@ -169,10 +158,9 @@ pub async fn draw(state_container: StateContainer) -> anyhow::Result<()> {
         let root = state.root_node.lock().await;
         let root = root.as_ref();
         if let Some(root) = root {
-            let mut canvas = Canvas::new_filled(size, Cell::new_styled(" ", Style::default()));
-            let future = draw_node(state_container.clone(), root, root, &mut canvas);
+            let mut view = new_canvas.to_view();
+            let future = draw_node(state_container.clone(), root, root, &mut view);
             Box::pin(future).await?;
-            new_canvas.put_canvas((&canvas).into(), Vector2::new(0, 0));
         }
     }
 
