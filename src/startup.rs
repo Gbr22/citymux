@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use crate::draw::draw_loop;
-use crate::escape_codes::{AllMotionTracking, SetAlternateScreenBuffer, SgrMouseHandling};
+use crate::escape_codes::{AllMotionTracking, ClearScreen, SetAlternateScreenBuffer, SgrMouseHandling};
 use crate::input::handle_stdin;
 use crate::size::update_size;
 use crate::spawn::create_process;
@@ -71,6 +71,9 @@ async fn init_screen(state_container: StateContainer) -> Result<(), Box<dyn std:
     let mut stdout = stdout.lock().await;
     stdout
         .write(SetAlternateScreenBuffer::enable().into())
+        .await?;
+    stdout
+        .write(ClearScreen::new().into())
         .await?;
     stdout.write(AllMotionTracking::new(true).into()).await?;
     stdout.write(SgrMouseHandling::new(true).into()).await?;

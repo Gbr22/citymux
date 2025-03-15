@@ -45,6 +45,91 @@ const MOUSE_POSITION_OFFSET_VECTOR: Vector2 = Vector2::new(
     LEGACY_MOUSE_MODE_COORDINATE_OFFSET as isize,
 );
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct KeyModifiers {
+    pub value: u8
+}
+
+impl Default for KeyModifiers {
+    fn default() -> Self {
+        Self {
+            value: 0,
+        }
+    }
+}
+
+impl <T: Into<KeyModifiers> + Clone> ToKeyModifiers for T {
+    fn to_key_modifiers(&self) -> KeyModifiers {
+        self.clone().into()
+    }
+}
+impl From<u8> for KeyModifiers {
+    fn from(value: u8) -> Self {
+        Self {
+            value,
+        }
+    }
+}
+
+impl KeyModifiers {
+    pub const SHIFT:     u8 = 0b1;         // (1)
+    pub const ALT:       u8 = 0b10;        // (2)
+    pub const CTRL:      u8 = 0b100;       // (4)
+    pub const SUPER:     u8 = 0b1000;      // (8)
+    pub const HYPER:     u8 = 0b10000;     // (16)
+    pub const META:      u8 = 0b100000;    // (32)
+    pub const CAPS_LOCK: u8 = 0b1000000;   // (64)
+    pub const NUM_LOCK:  u8 = 0b10000000;  // (128)
+
+    pub fn shift_key(&self) -> bool {
+        self.value & Self::SHIFT != 0
+    }
+    pub fn alt_key(&self) -> bool {
+        self.value & Self::ALT != 0
+    }
+    pub fn ctrl_key(&self) -> bool {
+        self.value & Self::CTRL != 0
+    }
+    pub fn super_key(&self) -> bool {
+        self.value & Self::SUPER != 0
+    }
+    pub fn hyper_key(&self) -> bool {
+        self.value & Self::HYPER != 0
+    }
+    pub fn meta_key(&self) -> bool {
+        self.value & Self::META != 0
+    }
+}
+
+#[derive(Clone, Debug)]
+struct KeyPressInfo {
+    key: char,
+    modifiers: KeyModifiers,
+}
+
+trait ToKeyModifiers {
+    fn to_key_modifiers(&self) -> KeyModifiers;
+}
+
+impl KeyPressInfo {
+    pub fn new(key: char) -> Self {
+        Self {
+            key,
+            modifiers: KeyModifiers::default(),
+        }
+    }
+    pub fn key(&self) -> char {
+        self.key
+    }
+    pub fn with_modifiers(mut self, modifiers: &impl ToKeyModifiers) -> Self {
+        self.modifiers = modifiers.to_key_modifiers();
+        self
+    }
+    pub fn modifiers(&self) -> KeyModifiers {
+        self.modifiers.clone()
+    }
+}
+
 impl Performer {
     pub fn new(state_container: StateContainer) -> Self {
         Self {
@@ -74,6 +159,29 @@ impl Performer {
             }
         }
         Ok(())
+    }
+    fn on_key_press(&mut self, info: KeyPressInfo) {
+        tracing::debug!("Key press: {:?}", info);
+        let state_container = self.state_container.clone();
+        self.run(|| async move {
+            if info.key() == 'q' && info.modifiers().alt_key() {
+                kill_active_span(state_container.clone()).await?;
+            }
+            else if info.key() == 'n' && info.modifiers().alt_key() {
+                create_process(state_container.clone()).await?;
+            }
+            else if info.key() == '\x1b' {
+                let data = "\x1b".as_bytes();
+                write_input(state_container.clone(), data, true).await?;
+            }
+            else if info.modifiers() == KeyModifiers::default() {
+                let new_string = format!("{}", info.key());
+                let state = state_container.clone();
+                write_input(state, new_string.as_bytes(), true).await?;
+            }
+
+            Ok(())
+        });
     }
     fn on_mouse_event(&mut self, button: u16, x: usize, y: usize, is_release: bool) {
         let position = Vector2::new(x as isize, y as isize);
@@ -110,9 +218,6 @@ impl Performer {
                         state.set_active_span(process.span_id);
                     }
                     let mut should_write = false;
-                    if is_scroll {
-                        should_write = true;
-                    }
                     match mouse_mode {
                         MouseProtocolMode::None => {}
                         MouseProtocolMode::Press => {
@@ -212,17 +317,13 @@ impl vte::Perform for Performer {
             self.mouse_sequence_remaining -= 1;
             return;
         }
-        let new_string = format!("{}", char);
-        let state = self.state_container.clone();
-        let future = async move { write_input(state, new_string.as_bytes(), true).await };
-        self.futures.push(tokio::spawn(future));
-        tracing::debug!("[PRINT] {:?}", char);
+        self.on_key_press(KeyPressInfo::new(char));
     }
     fn execute(&mut self, byte: u8) {
+        tracing::debug!("[EXECUTE] {:?}", byte);
         let bytes = [byte];
         let state = self.state_container.clone();
         self.run(|| async move { write_input(state, &bytes, true).await });
-        tracing::debug!("[EXECUTE] {:?}", byte);
     }
 
     fn hook(&mut self, _params: &vte::Params, _intermediates: &[u8], _ignore: bool, _action: char) {
@@ -294,7 +395,6 @@ impl vte::Perform for Performer {
                 && owned_intermediates.is_empty()
             {
                 let bytes = [0x1b, b'O', action as u8];
-                tracing::debug!("Writing in keypad mode");
                 return write_input(state.clone(), &bytes, true).await;
             }
             let mut bytes: Vec<u8> = Vec::new();
@@ -309,10 +409,13 @@ impl vte::Perform for Performer {
     }
 
     fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
-        if ignore {
-            return;
+        if intermediates.len() == 0 {
+            self.on_key_press(KeyPressInfo::new(char::from(byte))
+                .with_modifiers(&KeyModifiers::ALT));
         }
-        tracing::debug!("[ESC] {:?} {:?}", intermediates, byte);
+        else {
+            tracing::debug!("Unknown escape code: {:?} {:?} {:?}", intermediates, byte, ignore);
+        }
     }
 
     fn terminated(&self) -> bool {
@@ -321,7 +424,7 @@ impl vte::Perform for Performer {
 }
 
 pub async fn handle_stdin(state_container: StateContainer) -> anyhow::Result<()> {
-    let mut escape_distance: Option<usize> = None;
+    let mut did_end_with_escape = false;
 
     let mut parser = vte::Parser::new();
 
@@ -331,39 +434,28 @@ pub async fn handle_stdin(state_container: StateContainer) -> anyhow::Result<()>
         let stdin = state_container.state().stdin.clone();
         let mut stdin = stdin.lock().await;
 
-        let mut buf = [0; 1];
+        let mut buffer = [0; 1024];
 
-        let timeout_result = timeout(Duration::from_millis(100), stdin.read(&mut buf)).await;
+        let timeout_result = timeout(Duration::from_millis(100), stdin.read(&mut buffer)).await;
         let Ok(result) = timeout_result else {
-            if escape_distance == Some(0) {
-                let data = "\x1b".as_bytes();
-                write_input(state_container.clone(), data, true).await?;
-                escape_distance = None;
+            if did_end_with_escape == true {
+                performer.on_key_press(KeyPressInfo::new('\x1b'));
             }
+            did_end_with_escape = false;
             continue;
         };
-        let n: usize = result?;
-        if n == 0 {
+        let len: usize = result?;
+        if len == 0 {
             return Ok(());
         }
-        let byte = buf[0];
-        parser.advance(&mut performer, &buf);
-        performer.block().await?;
-
-        if let Some(escape_distance_value) = escape_distance {
-            escape_distance = Some(escape_distance_value + 1);
-        }
-        if byte == 0x1b {
-            escape_distance = Some(0);
-            continue;
-        }
-        if byte == b'q' && escape_distance == Some(1) {
-            kill_active_span(state_container.clone()).await?;
-            continue;
-        }
-        if byte == b'n' && escape_distance == Some(1) {
-            create_process(state_container.clone()).await?;
-            continue;
+        did_end_with_escape = buffer[len-1] == 0x1b;
+        
+        let mut index = 0;
+        while index < len {
+            let bytes = &buffer[index..index+1];
+            parser.advance(&mut performer, &bytes);
+            performer.block().await?;
+            index = index + 1;
         }
     }
 }

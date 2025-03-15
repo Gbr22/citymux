@@ -27,6 +27,23 @@ impl From<MoveCursor> for Vec<u8> {
     }
 }
 
+pub struct ClearScreen {
+    _private: (),
+}
+impl From<ClearScreen> for &[u8] {
+    fn from(_: ClearScreen) -> Self {
+        "\x1b[3J\x1b[H\x1b[2J".as_bytes()
+    }
+}
+
+impl ClearScreen {
+    pub fn new() -> Self {
+        ClearScreen {
+            _private: (),
+        }
+    }
+}
+
 pub struct SetAlternateScreenBuffer {
     is_enabled: bool,
 }
