@@ -64,7 +64,7 @@ impl Rect {
 }
 
 pub trait Drawable {
-    fn draw(&self, canvas: Box<&mut dyn CanvasLike>);
+    fn draw(&self, canvas: &mut dyn Surface);
 }
 
 #[derive(Clone, Copy, Default, Debug)]
@@ -156,7 +156,7 @@ pub struct Canvas {
 }
 
 pub struct CanvasView<'a> {
-    canvas: Box<&'a mut dyn CanvasLike>,
+    canvas: Box<&'a mut dyn Surface>,
     rect: Rect,
 }
 
@@ -172,7 +172,7 @@ impl<'a> CanvasView<'a> {
     }
 }
 
-impl <'a> CanvasLike for CanvasView<'a> {
+impl <'a> Surface for CanvasView<'a> {
     fn size(&self) -> Vector2 {
         self.rect.size
     }
@@ -204,7 +204,7 @@ impl <'a> CanvasLike for CanvasView<'a> {
     }
 }
 
-pub trait CanvasLike {
+pub trait Surface {
     fn size(&self) -> Vector2;
     fn set_size(&mut self, size: Vector2);
     fn get_cell(&self, position: Vector2) -> Cell;
@@ -214,26 +214,26 @@ pub trait CanvasLike {
     fn to_view(&mut self) -> CanvasView {
         self.to_sub_view(Rect::new(Vector2::null(), self.size()))
     }
-    fn draw(&mut self, drawable: Box<&dyn Drawable>) where Self: Sized {
-        drawable.draw(Box::new(self));
+    fn draw(&mut self, drawable: &dyn Drawable) where Self: Sized {
+        drawable.draw(self);
     }
-    fn draw_at(&mut self, drawable: Box<&dyn Drawable>, position: Vector2) where Self: Sized {
+    fn draw_at(&mut self, drawable: &dyn Drawable, position: Vector2) where Self: Sized {
         self.draw_in(drawable, Rect::new(position, self.size() - position));
     }
-    fn draw_in(&mut self, drawable: Box<&dyn Drawable>, rect: Rect) where Self: Sized {
+    fn draw_in(&mut self, drawable: &dyn Drawable, rect: Rect) where Self: Sized {
         let mut view = self.to_sub_view(rect);
-        drawable.draw(Box::new(&mut view));
+        drawable.draw(&mut view);
     }
 }
 
-impl <'a> Into<Box<&'a dyn CanvasLike>> for &'a Canvas {
-    fn into(self) -> Box<&'a dyn CanvasLike> {
+impl <'a> Into<Box<&'a dyn Surface>> for &'a Canvas {
+    fn into(self) -> Box<&'a dyn Surface> {
         Box::new(self)
     }
 }
 
-impl <'a> Into<Box<&'a dyn CanvasLike>> for &'a mut Canvas {
-    fn into(self) -> Box<&'a dyn CanvasLike> {
+impl <'a> Into<Box<&'a dyn Surface>> for &'a mut Canvas {
+    fn into(self) -> Box<&'a dyn Surface> {
         Box::new(self)
     }
 }
@@ -254,7 +254,7 @@ impl <'a> DrawableStr<'a> {
 }
 
 impl Drawable for DrawableStr<'_> {
-    fn draw(&self, canvas: Box<&mut dyn CanvasLike>) {
+    fn draw(&self, canvas: &mut dyn Surface) {
         let str = self.string;
         let chars = str.chars().collect::<Vec<char>>();
         let mut x = 0;
@@ -290,7 +290,7 @@ impl Debug for Canvas {
     }
 }
 
-impl CanvasLike for Canvas {
+impl Surface for Canvas {
     fn iter_mut_cells(&mut self) -> std::slice::IterMut<'_, Cell> {
         self.cells.as_mut_slice().iter_mut()
     }
@@ -365,7 +365,7 @@ impl CanvasLike for Canvas {
 }
 
 impl <T: AsRef<str>> Drawable for T {
-    fn draw(&self, canvas: Box<&mut dyn CanvasLike>) {
+    fn draw(&self, canvas: &mut dyn Surface) {
         let str = self.as_ref();
         let chars = str.chars().collect::<Vec<char>>();
         let mut x = 0;
@@ -475,7 +475,7 @@ impl TerminalInfo {
     pub fn is_cursor_visible(&self) -> bool {
         !self.parser.screen().hide_cursor()
     }
-    pub fn draw(&self, canvas: &mut impl CanvasLike) {
+    pub fn draw(&self, canvas: &mut impl Surface) {
         let screen = self.parser.screen();
         let (height, width) = screen.size();
         let size = Vector2::new(width as isize, height as isize);

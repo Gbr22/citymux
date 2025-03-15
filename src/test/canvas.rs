@@ -1,4 +1,4 @@
-use crate::canvas::{Canvas, CanvasLike, Cell, Rect, Vector2};
+use crate::canvas::{Canvas, Surface, Cell, Rect, Vector2};
 
 #[test]
 fn canvas_view_read() {

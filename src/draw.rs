@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::{io::AsyncWriteExt, sync::Mutex, time::MissedTickBehavior};
 
 use crate::{
-    canvas::{Canvas, CanvasLike, CanvasView, Cell, Color, DrawableStr, Rect, Style, Vector2},
+    canvas::{Canvas, Surface, CanvasView, Cell, Color, DrawableStr, Rect, Style, Vector2},
     escape_codes::{CursorForward, EraseCharacter, MoveCursor, ResetStyle, SetCursorVisibility},
     layout::get_span_dimensions,
     size::update_size,
@@ -30,7 +30,7 @@ pub async fn draw_node_content(
     state_container: StateContainer,
     node: &Node,
     process: Arc<Mutex<Process>>,
-    output_canvas: &mut impl CanvasLike,
+    output_canvas: &mut impl Surface,
 ) -> anyhow::Result<()> {
     let process = process.lock().await;
     let size = output_canvas.size();
@@ -51,7 +51,7 @@ pub async fn draw_node(
     state_container: StateContainer,
     root: &Node,
     node: &Node,
-    canvas: &mut impl CanvasLike,
+    canvas: &mut impl Surface,
 ) -> anyhow::Result<()> {
     match node.data {
         NodeData::Span(ref span) => {
@@ -127,7 +127,7 @@ pub async fn draw_node(
                     let title = DrawableStr::new(&title, Style::default()
                     .with_background_color(highlight_color.clone())
                     .with_foreground_color(Color::new_one_byte(0)));
-                    canvas.draw_in(Box::new(&title), Rect::new(Vector2::new(1, 0), Vector2::new(canvas.size().x-2, 1)));
+                    canvas.draw_in(&title, Rect::new(Vector2::new(1, 0), Vector2::new(canvas.size().x-2, 1)));
                 }
                 let mut proc_canvas = canvas.to_sub_view(Rect::new(Vector2::new(1, 1), canvas.size() - Vector2::new(2, 2)));
                 let future =
