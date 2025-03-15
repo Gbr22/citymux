@@ -1,4 +1,6 @@
-use crate::{canvas::Vector2, state::StateContainer};
+use renterm::vector::Vector2;
+
+use crate::state::StateContainer;
 
 pub async fn update_size(state_container: StateContainer) -> Result<Vector2, anyhow::Error> {
     let (width, height) = crossterm::terminal::size()?;

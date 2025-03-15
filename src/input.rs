@@ -1,14 +1,14 @@
 use std::{ops::DerefMut, time::Duration};
 
+use renterm::vector::Vector2;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     time::timeout,
 };
 
 use crate::{
-    canvas::Vector2,
     spawn::{create_process, kill_active_span},
-    state::StateContainer,
+    state::StateContainer, term::{MouseProtocolEncoding, MouseProtocolMode},
 };
 
 pub async fn write_input(
@@ -114,26 +114,26 @@ impl Performer {
                         should_write = true;
                     }
                     match mouse_mode {
-                        crate::canvas::MouseProtocolMode::None => {}
-                        crate::canvas::MouseProtocolMode::Press => {
+                        MouseProtocolMode::None => {}
+                        MouseProtocolMode::Press => {
                             should_write = is_press;
                         }
-                        crate::canvas::MouseProtocolMode::PressRelease => {
+                        MouseProtocolMode::PressRelease => {
                             should_write = is_press || is_release;
                         }
-                        crate::canvas::MouseProtocolMode::ButtonMotion => {
+                        MouseProtocolMode::ButtonMotion => {
                             if has_mouse_press {
                                 should_write = true;
                             }
                         }
-                        crate::canvas::MouseProtocolMode::AnyMotion => {
+                        MouseProtocolMode::AnyMotion => {
                             should_write = true;
                         }
                     }
                     if should_write {
                         let encoding = terminal_info.mouse_protocol_encoding();
                         match encoding {
-                            crate::canvas::MouseProtocolEncoding::Default => {
+                            MouseProtocolEncoding::Default => {
                                 let shifted_position =
                                     shifted_position + MOUSE_POSITION_OFFSET_VECTOR;
                                 let button = 3;
@@ -149,7 +149,7 @@ impl Performer {
                                 stdin.write(data).await?;
                                 stdin.flush().await?;
                             }
-                            crate::canvas::MouseProtocolEncoding::Sgr => {
+                            MouseProtocolEncoding::Sgr => {
                                 let command = if is_release { 'm' } else { 'M' };
                                 let data = format!(
                                     "\x1b[<{};{};{}{}",
@@ -160,7 +160,7 @@ impl Performer {
                                 stdin.write(data).await?;
                                 stdin.flush().await?;
                             }
-                            crate::canvas::MouseProtocolEncoding::Utf8 => {
+                            MouseProtocolEncoding::Utf8 => {
                                 let command = if is_release { 'm' } else { 'M' };
                                 let data = format!(
                                     "\x1b[<{};{};{}{}",

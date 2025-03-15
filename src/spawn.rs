@@ -1,17 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
+use renterm::vector::Vector2;
 use tokio::sync::Mutex;
 use which::which;
 
 use crate::{
-    canvas::TerminalInfo,
-    draw::trigger_draw,
-    exit::exit,
-    layout::get_span_dimensions,
-    process::handle_process,
-    span::{get_root_dimensions, Node, NodeData, Span, SpanChild, SpanDirection},
-    state::{Process, StateContainer},
-    tty::spawn_interactive_process,
-    Vector2,
+    draw::trigger_draw, exit::exit, layout::get_span_dimensions, process::handle_process, span::{get_root_dimensions, Node, NodeData, Span, SpanChild, SpanDirection}, state::{Process, StateContainer}, term::TerminalInfo, tty::spawn_interactive_process
 };
 
 pub async fn create_span(state_container: StateContainer) -> anyhow::Result<usize> {

@@ -6,6 +6,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::{mem, os::windows::io::FromRawHandle, ptr};
 
+use renterm::vector::Vector2;
 use tokio::sync::Mutex;
 use tokio::task;
 use windows::core::HRESULT;
@@ -32,7 +33,6 @@ use windows::Win32::{
 };
 
 use crate::process::{ProcessData, TerminalError, TerminalLike};
-use crate::Vector2;
 
 impl From<windows::core::Error> for TerminalError {
     fn from(error: windows::core::Error) -> Self {
@@ -256,7 +256,7 @@ impl TerminalLike for WinPTY {
         Box::pin(future)
     }
 
-    fn set_size(&mut self, size: crate::canvas::Vector2) -> Result<(), TerminalError> {
+    fn set_size(&mut self, size: Vector2) -> Result<(), TerminalError> {
         unsafe {
             let mut tty_size = Win32::System::Console::COORD::default();
             tty_size.X = size.x as i16;
@@ -271,7 +271,7 @@ impl TerminalLike for WinPTY {
         Ok(())
     }
 
-    fn size(&self) -> crate::canvas::Vector2 {
+    fn size(&self) -> Vector2 {
         self.size
     }
 }

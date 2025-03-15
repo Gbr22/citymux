@@ -1,0 +1,10 @@
+[package]
+name = "renterm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vt100 = { version = "0.15.2", optional = true }
+
+[features]
+vt100 = ["dep:vt100"]

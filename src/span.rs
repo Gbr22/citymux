@@ -1,7 +1,6 @@
-use crate::{
-    canvas::{Rect, Vector2},
-    StateContainer,
-};
+use renterm::{rect::Rect, vector::Vector2};
+
+use crate::StateContainer;
 
 #[derive(Debug, Clone, Copy)]
 pub enum SpanDirection {

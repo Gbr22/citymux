@@ -1,5 +1,6 @@
+use renterm::{rect::Rect, vector::Vector2};
+
 use crate::{
-    canvas::{Rect, Vector2},
     span::{Node, NodeData, SpanDirection},
 };
 

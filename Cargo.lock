@@ -76,6 +76,7 @@ dependencies = [
  "crossterm",
  "crossterm_winapi",
  "os_pipe",
+ "renterm",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -302,6 +303,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03a862b389f93e68874fbf580b9de08dd02facb9a788ebadaf4a3fd33cf58834"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "renterm"
+version = "0.1.0"
+dependencies = [
+ "vt100",
 ]
 
 [[package]]

@@ -3,17 +3,17 @@ use std::{
     sync::{atomic::{AtomicBool, AtomicUsize}, Arc},
 };
 
+use renterm::{canvas::Canvas, rect::Rect, vector::Vector2};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     sync::{Mutex, RwLock},
 };
 
 use crate::{
-    canvas::{Canvas, Rect, TerminalInfo, Vector2},
     draw::DrawMessage,
     layout::get_span_dimensions,
     process::TerminalLike,
-    span::Node,
+    span::Node, term::TerminalInfo,
 };
 
 pub struct Process {

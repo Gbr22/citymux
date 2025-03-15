@@ -1,4 +1,4 @@
-use crate::canvas::Vector2;
+use renterm::vector::Vector2;
 
 pub struct MoveCursor {
     y: isize,

@@ -1,12 +1,10 @@
 use std::fs::OpenOptions;
 
-use canvas::Vector2;
 use exit::exit;
 use startup::run_application;
 use state::{State, StateContainer};
 use tokio::io::{self};
 
-mod canvas;
 mod draw;
 mod encoding;
 mod escape_codes;
@@ -22,9 +20,7 @@ mod state;
 mod terminal;
 mod tty;
 mod tty_windows;
-
-#[cfg(test)]
-mod test;
+mod term;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

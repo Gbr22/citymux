@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use renterm::{cell::Cell, color::Color, rect::Rect, style::Style, surface::Surface, text::DrawableStr, vector::Vector2};
 use tokio::{io::AsyncWriteExt, sync::Mutex, time::MissedTickBehavior};
 
 use crate::{
-    canvas::{Surface, Cell, Color, DrawableStr, Rect, Style, Vector2},
     escape_codes::{CursorForward, EraseCharacter, MoveCursor, ResetStyle, SetCursorVisibility},
     layout::get_span_dimensions,
     size::update_size,
@@ -202,7 +202,7 @@ async fn draw_inner(state_container: StateContainer) -> anyhow::Result<()> {
                         last_style = cell.style.clone();
                     }
 
-                    to_write.extend(&cell.value.to_vec());
+                    to_write.extend(cell.value.to_string().as_bytes());
                 }
                 to_write.extend("\r".as_bytes());
             }

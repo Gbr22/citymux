@@ -2,12 +2,12 @@ use std::fmt::Display;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use renterm::vector::Vector2;
 use tokio::io::{AsyncReadExt, ReadBuf};
 
 use tokio::sync::Mutex;
 use tokio::task::JoinError;
 
-use crate::canvas::{self};
 use crate::draw::trigger_draw;
 use crate::spawn::kill_span;
 use crate::state::{Process, StateContainer};
@@ -22,8 +22,8 @@ pub trait TerminalLike: Send + Sync {
     fn release<'a>(
         &'a mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), TerminalError>> + 'a + Send>>;
-    fn set_size(&mut self, size: canvas::Vector2) -> Result<(), TerminalError>;
-    fn size(&self) -> canvas::Vector2;
+    fn set_size(&mut self, size: Vector2) -> Result<(), TerminalError>;
+    fn size(&self) -> Vector2;
     fn take_done_future(
         &mut self,
     ) -> Option<Pin<Box<dyn std::future::Future<Output = Result<(), TerminalError>> + Send>>>;
