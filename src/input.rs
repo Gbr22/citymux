@@ -103,7 +103,7 @@ impl Performer {
                     continue;
                 };
                 if rect.contains(position) {
-                    let shifted_position = position - rect.position;
+                    let shifted_position = position - rect.position();
                     let terminal_info = process.terminal_info.lock().await;
                     let mouse_mode = terminal_info.mouse_protocol_mode();
                     if is_press {

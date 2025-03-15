@@ -52,7 +52,7 @@ pub async fn create_span(state_container: StateContainer) -> anyhow::Result<usiz
                     let new_child =
                         SpanChild::new(Node::new(new_id, NodeData::Void)).with_size(1.0);
 
-                    let is_horizonal_axis_larger = root_rect.size.x > root_rect.size.y;
+                    let is_horizonal_axis_larger = root_rect.size().x > root_rect.size().y;
                     let direction = if is_horizonal_axis_larger {
                         SpanDirection::Horizontal
                     } else {
@@ -114,8 +114,8 @@ pub async fn create_span(state_container: StateContainer) -> anyhow::Result<usiz
                                     let size_of_new_child = avg;
                                     let new_total = total + size_of_new_child;
                                     let new_ratio = size_of_new_child / new_total;
-                                    let new_width = parent_sizes.size.x as f64 * new_ratio;
-                                    if active_sizes.size.y as f64 > new_width {
+                                    let new_width = parent_sizes.size().x as f64 * new_ratio;
+                                    if active_sizes.size().y as f64 > new_width {
                                         let mut new_span = Span::new(SpanDirection::Vertical);
                                         let container_id = state_container
                                             .state()
@@ -150,8 +150,8 @@ pub async fn create_span(state_container: StateContainer) -> anyhow::Result<usiz
                                     let size_of_new_child = avg;
                                     let new_total = total + size_of_new_child;
                                     let new_ratio = size_of_new_child / new_total;
-                                    let new_height = parent_sizes.size.y as f64 * new_ratio;
-                                    if active_sizes.size.x as f64 > new_height {
+                                    let new_height = parent_sizes.size().y as f64 * new_ratio;
+                                    if active_sizes.size().x as f64 > new_height {
                                         let mut new_span = Span::new(SpanDirection::Horizontal);
                                         let container_id = state_container
                                             .state()

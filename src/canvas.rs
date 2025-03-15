@@ -38,8 +38,8 @@ impl Vector2 {
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct Rect {
-    pub position: Vector2,
-    pub size: Vector2,
+    position: Vector2,
+    size: Vector2,
 }
 
 impl Rect {
@@ -178,7 +178,6 @@ impl <'a> Surface for CanvasView<'a> {
     }
     fn set_size(&mut self, size: Vector2) {
         self.rect.size = size;
-        self.canvas.set_size(self.rect.bottom_right().max(self.canvas.size()));
     }
     fn get_cell(&self, position: Vector2) -> Cell {
         if !self.is_position_in_rect(position) {

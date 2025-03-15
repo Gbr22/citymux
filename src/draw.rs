@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::{io::AsyncWriteExt, sync::Mutex, time::MissedTickBehavior};
 
 use crate::{
-    canvas::{Canvas, Surface, CanvasView, Cell, Color, DrawableStr, Rect, Style, Vector2},
+    canvas::{Surface, Cell, Color, DrawableStr, Rect, Style, Vector2},
     escape_codes::{CursorForward, EraseCharacter, MoveCursor, ResetStyle, SetCursorVisibility},
     layout::get_span_dimensions,
     size::update_size,
@@ -66,10 +66,7 @@ pub async fn draw_node(
             let dimensions = get_span_dimensions(
                 root,
                 node.id,
-                Rect {
-                    position: Vector2::new(0, 0),
-                    size: canvas.size(),
-                },
+                Rect::new(Vector2::new(0, 0), canvas.size()),
             );
             let Some(dimensions) = dimensions else {
                 return Err(anyhow::format_err!("Could not find dimensions of span"));
@@ -239,14 +236,11 @@ async fn draw_inner(state_container: StateContainer) -> anyhow::Result<()> {
                     let span = get_span_dimensions(
                         root,
                         process.span_id,
-                        Rect {
-                            position: Vector2::new(0, 0),
-                            size,
-                        },
+                        Rect::new(Vector2::new(0, 0), size),
                     );
                     if let Some(span) = span {
                         to_write.extend(&Into::<Vec<u8>>::into(MoveCursor::from(
-                            span.position + cursor_position + Vector2::new(1, 1),
+                            span.position() + cursor_position + Vector2::new(1, 1),
                         )));
                         to_write.extend(Into::<&[u8]>::into(SetCursorVisibility::new(true)));
                     }

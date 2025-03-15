@@ -21,18 +21,18 @@ pub fn get_span_dimensions(
             }
 
             let mut sizes = vec![Vector2::null(); span.children.len()];
-            let mut remaining_size = parent_dimensions.size;
+            let mut remaining_size = parent_dimensions.size();
             for (index, child) in span.children.iter().enumerate() {
                 let size = child.size;
                 let ratio = size / total;
                 let size = match direction {
                     SpanDirection::Horizontal => Vector2::new(
-                        (parent_dimensions.size.x as f64 * ratio).floor() as isize,
-                        parent_dimensions.size.y,
+                        (parent_dimensions.size().x as f64 * ratio).floor() as isize,
+                        parent_dimensions.size().y,
                     ),
                     SpanDirection::Vertical => Vector2::new(
-                        parent_dimensions.size.x,
-                        (parent_dimensions.size.y as f64 * ratio).floor() as isize,
+                        parent_dimensions.size().x,
+                        (parent_dimensions.size().y as f64 * ratio).floor() as isize,
                     ),
                 };
                 sizes[index] = size;
@@ -66,7 +66,7 @@ pub fn get_span_dimensions(
             }
 
             let mut last_size = Vector2::new(0, 0);
-            let mut last_position = parent_dimensions.position;
+            let mut last_position = parent_dimensions.position();
             for (index, child) in span.children.iter().enumerate() {
                 let size = sizes[index];
                 let position = match direction {
@@ -81,7 +81,7 @@ pub fn get_span_dimensions(
                 last_size = size;
                 last_position = position;
 
-                let sub_dim = get_span_dimensions(&child.node, span_id, Rect { position, size });
+                let sub_dim = get_span_dimensions(&child.node, span_id, Rect::new(position, size));
 
                 if let Some(sub_dim) = sub_dim {
                     return Some(sub_dim);
