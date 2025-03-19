@@ -215,8 +215,10 @@ pub async fn create_process(
     let program = which(program)?.to_string_lossy().to_string();
     let mut env: HashMap<String, String> = HashMap::new();
     env.insert("TERM".to_string(), "xterm-citymux".to_string());
-
+    
+    tracing::debug!("Spawning program: {}", program);
     let result = spawn_interactive_process(&program, env, size).await?;
+    tracing::debug!("Program spawned: {}", program);
     let process = Process {
         stdin: Arc::new(Mutex::new(result.stdin)),
         stdout: Arc::new(Mutex::new(result.stdout)),

@@ -52,12 +52,6 @@ impl SetAlternateScreenBuffer {
     pub fn new(value: bool) -> Self {
         SetAlternateScreenBuffer { is_enabled: value }
     }
-    pub fn enable() -> Self {
-        SetAlternateScreenBuffer::new(true)
-    }
-    pub fn disable() -> Self {
-        SetAlternateScreenBuffer::new(false)
-    }
 }
 
 impl From<SetAlternateScreenBuffer> for &[u8] {
@@ -247,6 +241,25 @@ impl From<SgrMouseHandling> for &[u8] {
         match val.is_enabled {
             true => "\x1b[?1006h".as_bytes(),
             false => "\x1b[?1006l".as_bytes(),
+        }
+    }
+}
+
+pub struct SetWin32InputMode {
+    is_enabled: bool,
+}
+
+impl SetWin32InputMode {
+    pub fn new(value: bool) -> Self {
+        SetWin32InputMode { is_enabled: value }
+    }
+}
+
+impl From<SetWin32InputMode> for &[u8] {
+    fn from(val: SetWin32InputMode) -> Self {
+        match val.is_enabled {
+            true => "\x1b[?9001h".as_bytes(),
+            false => "\x1b[?9001l".as_bytes(),
         }
     }
 }

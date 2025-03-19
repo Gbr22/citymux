@@ -1,4 +1,4 @@
-use std::{ops::DerefMut, time::Duration};
+use std::{future::Future, ops::DerefMut, time::Duration};
 
 use renterm::vector::Vector2;
 use tokio::{
@@ -58,16 +58,52 @@ impl Default for KeyModifiers {
     }
 }
 
-impl <T: Into<KeyModifiers> + Clone> ToKeyModifiers for T {
-    fn to_key_modifiers(&self) -> KeyModifiers {
-        self.clone().into()
-    }
-}
 impl From<u8> for KeyModifiers {
     fn from(value: u8) -> Self {
         Self {
             value,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Win32ControlKeyState {
+    pub value: u16,
+}
+
+impl From<u16> for Win32ControlKeyState {
+    fn from(value: u16) -> Self {
+        Self {
+            value,
+        }
+    }
+}
+
+impl Win32ControlKeyState {
+    pub const RIGHT_ALT_PRESSED: u16 = 0x0001;
+    pub const LEFT_ALT_PRESSED: u16 = 0x0002;
+    pub const RIGHT_CTRL_PRESSED: u16 = 0x0004;
+    pub const LEFT_CTRL_PRESSED: u16 = 0x0008;
+    pub const SHIFT_PRESSED: u16 = 0x0010;
+    pub const NUMLOCK_ON: u16 = 0x0020;
+    pub const SCROLLLOCK_ON: u16 = 0x0040;
+    pub const CAPSLOCK_ON: u16 = 0x0080;
+    pub const ENHANCED_KEY: u16 = 0x0100;
+}
+
+impl Into<KeyModifiers> for Win32ControlKeyState {
+    fn into(self) -> KeyModifiers {
+        let mut value = 0;
+        if self.value & Self::SHIFT_PRESSED != 0 {
+            value |= KeyModifiers::SHIFT;
+        }
+        if self.value & Self::LEFT_ALT_PRESSED != 0 || self.value & Self::RIGHT_ALT_PRESSED != 0 {
+            value |= KeyModifiers::ALT;
+        }
+        if self.value & Self::LEFT_CTRL_PRESSED != 0 || self.value & Self::RIGHT_CTRL_PRESSED != 0 {
+            value |= KeyModifiers::CTRL;
+        }
+        KeyModifiers::from(value)
     }
 }
 
@@ -102,32 +138,50 @@ impl KeyModifiers {
 }
 
 #[derive(Clone, Debug)]
-struct KeyPressInfo {
-    key: char,
+struct KeyEventInfo {
+    unicode_value: char,
     modifiers: KeyModifiers,
 }
 
-trait ToKeyModifiers {
-    fn to_key_modifiers(&self) -> KeyModifiers;
-}
-
-impl KeyPressInfo {
+impl KeyEventInfo {
     pub fn new(key: char) -> Self {
         Self {
-            key,
+            unicode_value: key,
             modifiers: KeyModifiers::default(),
         }
     }
     pub fn key(&self) -> char {
-        self.key
+        self.unicode_value
     }
-    pub fn with_modifiers(mut self, modifiers: &impl ToKeyModifiers) -> Self {
-        self.modifiers = modifiers.to_key_modifiers();
+    pub fn with_modifiers(mut self, modifiers: impl Into<KeyModifiers>) -> Self {
+        self.modifiers = modifiers.into();
         self
     }
     pub fn modifiers(&self) -> KeyModifiers {
         self.modifiers.clone()
     }
+}
+
+async fn handle_key_press(state_container: StateContainer, info: KeyEventInfo) -> anyhow::Result<()> {
+    tracing::debug!("Key press: {:?}", info);
+    
+    if info.key() == 'q' && info.modifiers().alt_key() {
+        kill_active_span(state_container.clone()).await?;
+    }
+    else if info.key() == 'n' && info.modifiers().alt_key() {
+        create_process(state_container.clone()).await?;
+    }
+    else if info.key() == '\x1b' {
+        let data = "\x1b".as_bytes();
+        write_input(state_container.clone(), data, true).await?;
+    }
+    else if info.modifiers() == KeyModifiers::default() {
+        let new_string = format!("{}", info.key());
+        let state = state_container.clone();
+        write_input(state, new_string.as_bytes(), true).await?;
+    }
+
+    Ok(())
 }
 
 impl Performer {
@@ -160,29 +214,7 @@ impl Performer {
         }
         Ok(())
     }
-    fn on_key_press(&mut self, info: KeyPressInfo) {
-        tracing::debug!("Key press: {:?}", info);
-        let state_container = self.state_container.clone();
-        self.run(|| async move {
-            if info.key() == 'q' && info.modifiers().alt_key() {
-                kill_active_span(state_container.clone()).await?;
-            }
-            else if info.key() == 'n' && info.modifiers().alt_key() {
-                create_process(state_container.clone()).await?;
-            }
-            else if info.key() == '\x1b' {
-                let data = "\x1b".as_bytes();
-                write_input(state_container.clone(), data, true).await?;
-            }
-            else if info.modifiers() == KeyModifiers::default() {
-                let new_string = format!("{}", info.key());
-                let state = state_container.clone();
-                write_input(state, new_string.as_bytes(), true).await?;
-            }
-
-            Ok(())
-        });
-    }
+    
     fn on_mouse_event(&mut self, button: u16, x: usize, y: usize, is_release: bool) {
         let position = Vector2::new(x as isize, y as isize);
         let is_scroll = [64, 65].contains(&button);
@@ -237,6 +269,7 @@ impl Performer {
                     }
                     if should_write {
                         let encoding = terminal_info.mouse_protocol_encoding();
+                        tracing::debug!("Sending mouse event: position: {:?} button: {:?} is_release: {:?}, encoding: {:?}", position, button, is_release, encoding);
                         match encoding {
                             MouseProtocolEncoding::Default => {
                                 let shifted_position =
@@ -299,8 +332,13 @@ impl Performer {
     }
 }
 
+fn get_param(params: &[Vec<u16>], first: usize, second: usize) -> u16 {
+    *params.get(first).unwrap_or(&Vec::new()).get(second).unwrap_or(&0)
+}
+
 impl vte::Perform for Performer {
     fn print(&mut self, char: char) {
+        tracing::debug!("[PRINT] {:?}", char);
         if self.mouse_sequence_remaining > 0 {
             if self.mouse_sequence_remaining == 3 {
                 self.mouse_button = (char as usize - LEGACY_MOUSE_MODE_OFFSET as usize) as u16;
@@ -317,7 +355,11 @@ impl vte::Perform for Performer {
             self.mouse_sequence_remaining -= 1;
             return;
         }
-        self.on_key_press(KeyPressInfo::new(char));
+        let clone = self.state_container.clone();
+        let info = KeyEventInfo::new(char);
+        self.run(|| async move {
+            handle_key_press(clone, info).await
+        });
     }
     fn execute(&mut self, byte: u8) {
         tracing::debug!("[EXECUTE] {:?}", byte);
@@ -344,6 +386,12 @@ impl vte::Perform for Performer {
         _ignore: bool,
         action: char,
     ) {
+        tracing::debug!(
+            "[CSI] Params: {:?}, int: {:?}, action: {:?}",
+            &params,
+            &intermediates,
+            action
+        );
         let is_mouse = action == 'M' || action == 'm';
         let is_release = action == 'm';
         let is_sgr = String::from_utf8_lossy(intermediates) == "<";
@@ -365,13 +413,6 @@ impl vte::Perform for Performer {
         let state = self.state_container.clone();
         let owned_intermediates = intermediates.to_vec();
         let owned_params: Vec<Vec<u16>> = params.iter().map(|e| e.to_vec()).collect();
-
-        tracing::debug!(
-            "[CSI] Params: {:?}, int: {:?}, action: {:?}",
-            owned_params,
-            owned_intermediates,
-            action
-        );
 
         self.run(|| async move {
             let params_string: Vec<String> = owned_params
@@ -397,25 +438,34 @@ impl vte::Perform for Performer {
                 let bytes = [0x1b, b'O', action as u8];
                 return write_input(state.clone(), &bytes, true).await;
             }
-            let mut bytes: Vec<u8> = Vec::new();
-            bytes.extend(b"\x1b[");
-            bytes.extend(owned_intermediates);
-            bytes.extend(params_string.as_bytes());
-            let action = format!("{}", action);
-            bytes.extend(action.as_bytes());
-            write_input(state.clone(), &bytes, true).await
+
+            if action == '_' {
+                let virtual_key_code = get_param(&owned_params, 0, 0);
+                let virtual_scan_code = get_param(&owned_params, 1, 0);
+                let utf16_point = get_param(&owned_params, 2, 0);
+                let key_down = get_param(&owned_params, 3, 0);
+                let control_key_state = get_param(&owned_params, 4, 0);
+                let repeat_count = get_param(&owned_params, 5, 0);
+                let is_key_down = repeat_count > 0;
+
+                if virtual_key_code == 0 && virtual_scan_code == 0 && is_key_down == false {
+                    return Ok(());
+                }
+                let unicode_key = char::from_u32(utf16_point as u32).unwrap_or_default();
+
+                let modifiers = Win32ControlKeyState::from(control_key_state);
+                let info = KeyEventInfo::new(unicode_key).with_modifiers(modifiers);
+
+                handle_key_press(state, info).await?;
+            };
+
+            Ok(())
         });
         
     }
 
     fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
-        if intermediates.len() == 0 {
-            self.on_key_press(KeyPressInfo::new(char::from(byte))
-                .with_modifiers(&KeyModifiers::ALT));
-        }
-        else {
-            tracing::debug!("Unknown escape code: {:?} {:?} {:?}", intermediates, byte, ignore);
-        }
+        tracing::debug!("Unknown escape code: {:?} {:?} {:?}", intermediates, byte, ignore);
     }
 
     fn terminated(&self) -> bool {
@@ -439,7 +489,7 @@ pub async fn handle_stdin(state_container: StateContainer) -> anyhow::Result<()>
         let timeout_result = timeout(Duration::from_millis(100), stdin.read(&mut buffer)).await;
         let Ok(result) = timeout_result else {
             if did_end_with_escape == true {
-                performer.on_key_press(KeyPressInfo::new('\x1b'));
+                handle_key_press(state_container.clone(), KeyEventInfo::new('\x1b')).await?;
             }
             did_end_with_escape = false;
             continue;
@@ -448,6 +498,7 @@ pub async fn handle_stdin(state_container: StateContainer) -> anyhow::Result<()>
         if len == 0 {
             return Ok(());
         }
+        //tracing::debug!("Read {} bytes: {:?}", len,String::from_utf8_lossy(&buffer[..len]));
         did_end_with_escape = buffer[len-1] == 0x1b;
         
         let mut index = 0;

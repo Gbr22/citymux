@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use crate::draw::draw_loop;
-use crate::escape_codes::{AllMotionTracking, ClearScreen, SetAlternateScreenBuffer, SgrMouseHandling};
+use crate::escape_codes::{AllMotionTracking, ClearScreen, SetAlternateScreenBuffer, SetWin32InputMode, SgrMouseHandling};
 use crate::input::handle_stdin;
 use crate::size::update_size;
 use crate::spawn::create_process;
@@ -17,16 +17,15 @@ where
     loop {
         let result = func().await;
         if let Err(e) = result {
-            tracing::error!("Error: {:?}", e);
+            tracing::error!("Error in loop: {:?}", e);
         }
     }
 }
 
 async fn init_proc_handler(
     state_container: StateContainer,
-) -> Result<
+) -> anyhow::Result<
     tokio::sync::mpsc::Receiver<Pin<Box<dyn Future<Output = ()> + Send>>>,
-    Box<dyn std::error::Error>,
 > {
     let rx: tokio::sync::mpsc::Receiver<Pin<Box<dyn Future<Output = ()> + Send>>> = {
         let state = state_container.state();
@@ -63,18 +62,19 @@ async fn handle_child_processes(
     }
 }
 
-async fn init_screen(state_container: StateContainer) -> Result<(), Box<dyn std::error::Error>> {
-    enable_raw_mode()?;
+async fn init_screen(state_container: StateContainer) -> anyhow::Result<()> {
+    enable_raw_mode().map_err(|err|anyhow::Error::from_boxed(err))?;
     update_size(state_container.clone()).await?;
 
     let stdout = state_container.state().stdout.clone();
     let mut stdout = stdout.lock().await;
     stdout
-        .write(SetAlternateScreenBuffer::enable().into())
+        .write(SetAlternateScreenBuffer::new(true).into())
         .await?;
     stdout
         .write(ClearScreen::new().into())
         .await?;
+    stdout.write(SetWin32InputMode::new(true).into()).await?;
     stdout.write(AllMotionTracking::new(true).into()).await?;
     stdout.write(SgrMouseHandling::new(true).into()).await?;
     stdout.flush().await?;
@@ -84,7 +84,7 @@ async fn init_screen(state_container: StateContainer) -> Result<(), Box<dyn std:
 
 pub async fn run_application(
     state_container: StateContainer,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     init_screen(state_container.clone()).await?;
     let rx = init_proc_handler(state_container.clone()).await?;
     let rx = Arc::new(Mutex::new(rx));

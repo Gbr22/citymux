@@ -4,7 +4,7 @@ use winapi::um::wincon::{
     ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_WINDOW_INPUT,
 };
 
-pub fn enable_raw_mode() -> Result<(), Box<dyn std::error::Error>> {
+pub fn enable_raw_mode() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let console_mode = ConsoleMode::from(Handle::current_in_handle()?);
     let current_mode = console_mode.mode()?;
     let new_mode = (current_mode

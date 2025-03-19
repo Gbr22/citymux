@@ -3,6 +3,7 @@ use std::fs::OpenOptions;
 use args::CliArgs;
 use clap::Parser;
 use config::get_config;
+use error::trace_error;
 use exit::exit;
 use startup::run_application;
 use state::{State, StateContainer};
@@ -26,6 +27,7 @@ mod tty_windows;
 mod term;
 mod args;
 mod config;
+mod error;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,6 +37,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let subscriber = tracing_subscriber::fmt()
             .with_max_level(tracing::Level::DEBUG)
             .with_ansi(false)
+            .with_file(true)
+            .with_line_number(true)
             .with_writer(|| {
                 let log_file = CliArgs::parse().log_file.expect("Expected log file path to be Some");
 
@@ -59,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state_container = StateContainer::new(State::new(args,config,io::stdin(), io::stdout()));
     if let Err(e) = run_application(state_container).await {
-        tracing::error!("Error: {}", e);
+        trace_error("in application", &e);
         exit(1);
     }
 
