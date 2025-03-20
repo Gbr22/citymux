@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 which = "7.0.2"
-crossterm = { version = "0.28.1" }
+crossterm = { version = "0.28.1", features = ["bracketed-paste","events","windows","event-stream"]}
 crossterm_winapi = "0.9.1"
 winapi = "0.3.9"
 windows = { version = "0.59.0", features = [
@@ -27,3 +27,4 @@ renterm = { path = "./crates/renterm", features = ["vt100"] }
 clap = { version = "4.5.32", features = ["cargo"]}
 dirs = "6.0.0"
 kdl = "6.3.4"
+futures = "0.3.31"

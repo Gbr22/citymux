@@ -7,6 +7,8 @@ use crate::size::update_size;
 use crate::spawn::create_process;
 use crate::state::StateContainer;
 use crate::terminal::enable_raw_mode;
+use crossterm::event::{EnableBracketedPaste, EnableFocusChange, EnableMouseCapture, KeyboardEnhancementFlags, PushKeyboardEnhancementFlags};
+use crossterm::execute;
 use tokio::{io::AsyncWriteExt, sync::Mutex, task::JoinSet};
 
 async fn handle_loop<F, R>(func: F) -> anyhow::Result<()>
@@ -66,6 +68,23 @@ async fn init_screen(state_container: StateContainer) -> anyhow::Result<()> {
     enable_raw_mode().map_err(|err|anyhow::Error::from_boxed(err))?;
     update_size(state_container.clone()).await?;
 
+    crossterm::terminal::enable_raw_mode()?;
+    execute!(
+        std::io::stdout(),
+        EnableBracketedPaste,
+        EnableFocusChange,
+        EnableMouseCapture,
+    )?;
+
+    let _ignored = execute!(
+        std::io::stdout(),
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::empty()
+            .union(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+            .union(KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES)
+            .union(KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS)
+            .union(KeyboardEnhancementFlags::REPORT_EVENT_TYPES))
+    );
+    
     let stdout = state_container.state().stdout.clone();
     let mut stdout = stdout.lock().await;
     stdout
@@ -74,7 +93,6 @@ async fn init_screen(state_container: StateContainer) -> anyhow::Result<()> {
     stdout
         .write(ClearScreen::new().into())
         .await?;
-    stdout.write(SetWin32InputMode::new(true).into()).await?;
     stdout.write(AllMotionTracking::new(true).into()).await?;
     stdout.write(SgrMouseHandling::new(true).into()).await?;
     stdout.flush().await?;
