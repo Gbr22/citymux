@@ -111,12 +111,7 @@ fn key_event_to_bytes(event: KeyEvent, options: KeyEventConversionOptions) -> Ve
                 }
             },
             KeyCode::Delete => {
-                if options.is_application_keypad_mode_enabled {
-                    bytes.extend_from_slice("\x1bOP".as_bytes());
-                }
-                else {
-                    bytes.extend_from_slice("\x1b[3~".as_bytes());
-                }
+                bytes.extend_from_slice("\x1b[3~".as_bytes());
             },
             KeyCode::PageUp => {
                 if options.is_application_keypad_mode_enabled {
