@@ -170,31 +170,10 @@ async fn draw_inner(state_container: StateContainer) -> anyhow::Result<()> {
         if last_canvas.ne(&new_canvas) {
             for y in 0..new_canvas.size().y {
                 to_write.extend(&Into::<Vec<u8>>::into(MoveCursor::new(y, 0)));
-                let mut empty_count = 0;
                 for x in 0..new_canvas.size().x {
                     let cell = new_canvas.get_cell((x, y).into());
-                    let has_next = x + 1 < new_canvas.size().x;
-                    let next = new_canvas.get_cell((x + 1, y).into());
 
-                    let is_empty_optimization_enabled = true;
-                    if cell.is_empty() && is_empty_optimization_enabled {
-                        if empty_count == 0 {
-                            if cell.style != last_style {
-                                to_write.extend(Into::<&[u8]>::into(ResetStyle::default()));
-                                to_write.extend(&Into::<Vec<u8>>::into(cell.style.clone()));
-                            }
-                            last_style = cell.style.clone();
-                        }
-                        empty_count += 1;
-                        if !has_next || !next.is_empty() || next.style != last_style {
-                            to_write
-                                .extend(&Into::<Vec<u8>>::into(EraseCharacter::new(empty_count)));
-                            to_write
-                                .extend(&Into::<Vec<u8>>::into(CursorForward::new(empty_count)));
-                            empty_count = 0;
-                        }
-                        continue;
-                    }
+                    to_write.extend(format!("\x1b[{};{}H",y+1,x+1).as_bytes());
 
                     if cell.style != last_style {
                         to_write.extend(Into::<&[u8]>::into(ResetStyle::default()));
