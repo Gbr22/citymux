@@ -59,7 +59,7 @@ fn key_event_to_bytes(event: KeyEvent, options: KeyEventConversionOptions) -> Ve
                     bytes.extend_from_slice("\x1bOM".as_bytes());
                 }
                 else {
-                    bytes.push(b'\n');
+                    bytes.push(b'\r');
                 }
             },
             KeyCode::Left => {
