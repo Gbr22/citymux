@@ -2,14 +2,16 @@ use std::alloc::{alloc, Layout};
 use std::collections::HashMap;
 use std::future::Future;
 use std::os::raw::c_void;
+use std::os::windows::ffi::OsStrExt;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::{mem, os::windows::io::FromRawHandle, ptr};
 
+use data_encoding::BASE32HEX_NOPAD;
 use renterm::vector::Vector2;
 use tokio::sync::Mutex;
 use tokio::task;
-use windows::core::HRESULT;
+use windows::core::{HRESULT, PWSTR};
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::System::Console::ClosePseudoConsole;
 use windows::Win32::System::Threading::CreateProcessW;
@@ -33,6 +35,7 @@ use windows::Win32::{
 };
 
 use crate::process::{ProcessData, TerminalError, TerminalLike};
+use crate::tty::TtyParameters;
 
 impl From<windows::core::Error> for TerminalError {
     fn from(error: windows::core::Error) -> Self {
@@ -74,10 +77,11 @@ unsafe impl Send for ProcHandle {}
 unsafe impl Sync for ProcHandle {}
 
 pub async fn spawn_interactive_process(
-    program: &str,
-    env: HashMap<String, String>,
+    program_to_spawn: &str,
+    env: &HashMap<String, String>,
+    args: &[String],
     size: Vector2,
-) -> windows::core::Result<ProcessData> {
+) -> anyhow::Result<ProcessData> {
     unsafe {
         let mut input_read: HANDLE = HANDLE::default();
         let mut input_write: HANDLE = HANDLE::default();
@@ -113,7 +117,7 @@ pub async fn spawn_interactive_process(
         if let Err(e) = result {
             // Error { code: HRESULT(0x8007007A), message: "The data area passed to a system call is too small." }
             if e.code() != HRESULT::from_win32(0x8007007A) {
-                return Err(e);
+                return Err(e)?;
             }
         }
         let layout = Layout::from_size_align(attribute_list_size, mem::size_of::<usize>()).unwrap();
@@ -143,13 +147,38 @@ pub async fn spawn_interactive_process(
         };
 
         let mut proc_info: PROCESS_INFORMATION = mem::zeroed();
-        let program = format!("{}\0", program);
-        let program =
-            windows::core::PCWSTR::from_raw(program.encode_utf16().collect::<Vec<u16>>().as_ptr());
+
+        let current_exe = std::env::current_exe()?;
+        let current_exe = current_exe.to_str().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Failed to convert current executable path to string",
+            )
+        })?;
+        let program = std::ffi::OsString::from(current_exe)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<u16>>();
+        let program = windows::core::PCWSTR(program.as_ptr());
+
+        let options = TtyParameters {
+            executable: program_to_spawn.to_string(),
+            args: args.to_vec(),
+            env: env.clone(),
+        };
+
+        let data = serde_cbor::to_vec(&options)?;
+        let data = BASE32HEX_NOPAD.encode(&data);
+        let command_line = format!("!spawn-{}",data);
+        let mut comment_line = std::ffi::OsString::from(command_line)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<u16>>();
+        let command_line: PWSTR = windows::core::PWSTR(comment_line.as_mut_ptr());
 
         CreateProcessW(
             Some(&program),
-            None,
+            Some(command_line),
             None,
             None,
             false,
@@ -190,6 +219,9 @@ pub async fn spawn_interactive_process(
 
             Ok(())
         };
+
+        let process_id = proc_info.dwProcessId;
+        tracing::debug!("Child process ID: {:?}", process_id);
 
         Ok(ProcessData {
             stdin: Box::new(writer),

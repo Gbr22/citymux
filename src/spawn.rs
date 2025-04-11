@@ -217,7 +217,8 @@ pub async fn create_process(
     env.insert("TERM".to_string(), "xterm-citymux".to_string());
     
     tracing::debug!("Spawning program: {}", program);
-    let result = spawn_interactive_process(&program, env, size).await?;
+    let args = vec![];
+    let result = spawn_interactive_process(&program, &env, &args, size).await?;
     tracing::debug!("Program spawned: {}", program);
     let process = Process {
         stdin: Arc::new(Mutex::new(result.stdin)),

@@ -1,13 +1,14 @@
-use std::fs::OpenOptions;
+use std::{env, fs::OpenOptions};
 
 use args::CliArgs;
-use clap::Parser;
 use config::get_config;
+use data_encoding::BASE32HEX_NOPAD;
 use error::trace_error;
 use exit::exit;
 use startup::run_application;
 use state::{State, StateContainer};
 use tokio::io::{self};
+use tty::TtyParameters;
 
 mod draw;
 mod encoding;
@@ -29,8 +30,7 @@ mod args;
 mod config;
 mod error;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn run_multiplexer() -> anyhow::Result<()> {
     let args = CliArgs::parse();
 
     if args.enable_logging && args.log_file.is_some() {
@@ -65,6 +65,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Err(e) = run_application(state_container).await {
         trace_error("in application", &e);
         exit(1);
+    }
+
+    Ok(())
+}
+
+async fn run_subprocess(tty_params: TtyParameters) -> anyhow::Result<()> {
+    let mut child = std::process::Command::new(tty_params.executable)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()?;
+
+    let result = child.wait()?;
+    std::process::exit(result.code().unwrap_or(1));
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let program = env::args().next();
+    let program = program.unwrap_or_else(|| "".to_string());
+    if program.starts_with("!") {
+        if program.starts_with("!spawn-") {
+            let value = program.strip_prefix("!spawn-").unwrap();
+            let value = BASE32HEX_NOPAD.decode(value.as_bytes())?;
+            let value = serde_cbor::from_slice::<tty::TtyParameters>(&value)?;
+            run_subprocess(value).await?;
+        }
+        return Ok(());
+    }
+    else {
+        run_multiplexer().await?
     }
 
     Ok(())
