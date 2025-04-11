@@ -193,11 +193,11 @@ fn key_event_to_bytes(event: KeyEvent, options: KeyEventConversionOptions) -> Ve
 }
 
 async fn handle_shortcuts(state_container: StateContainer, event: KeyEvent) -> anyhow::Result<bool> {
-    if event.code == KeyCode::Char('q') && event.modifiers.intersects(KeyModifiers::ALT) {
+    if event.code == KeyCode::Char('q') && event.modifiers.intersects(KeyModifiers::ALT) && event.kind == crossterm::event::KeyEventKind::Press {
         kill_active_span(state_container.clone()).await?;
         return Ok(true);
     }
-    else if event.code == KeyCode::Char('n') && event.modifiers.intersects(KeyModifiers::ALT) {
+    else if event.code == KeyCode::Char('n') && event.modifiers.intersects(KeyModifiers::ALT) && event.kind == crossterm::event::KeyEventKind::Press {
         create_process(state_container.clone()).await?;
         return Ok(true);
     }
