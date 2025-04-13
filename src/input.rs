@@ -238,16 +238,20 @@ pub async fn handle_stdin(state_container: StateContainer) -> anyhow::Result<()>
                 trigger_draw(state_container.clone()).await;
             }
             if let Some(Ok(Event::Resize(x, y))) = maybe_event {
-                let state = state_container.state();
-                let mut size = state.size.write().await;
-                *size = Vector2::new(x, y);
+                {
+                    let state = state_container.state();
+                    let mut size = state.size.write().await;
+                    *size = Vector2::new(x, y);
+                }
                 trigger_draw(state_container.clone()).await;
             }
             if let Some(Ok(Event::Mouse(event))) = maybe_event {
-                let state = state_container.state();
-                let mut current_mouse_position = state.current_mouse_position.write().await;
-                *current_mouse_position = (event.column, event.row).into();
-                handle_mouse_event(state_container.clone(), event).await?;
+                {
+                    let state = state_container.state();
+                    let mut current_mouse_position = state.current_mouse_position.write().await;
+                    *current_mouse_position = (event.column, event.row).into();
+                    handle_mouse_event(state_container.clone(), event).await?;
+                }
                 trigger_draw(state_container.clone()).await;
             }
         }

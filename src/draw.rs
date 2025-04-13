@@ -287,7 +287,7 @@ async fn channel_draw_loop(state_container: StateContainer) -> anyhow::Result<()
 }
 
 pub async fn timeout_draw_loop(state_container: StateContainer) -> anyhow::Result<()> {
-    let mut interval = tokio::time::interval(std::time::Duration::from_millis(16));
+    let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         interval.tick().await;
