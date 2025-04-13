@@ -1,9 +1,15 @@
 use std::io::Write;
 
-use crossterm::{event::{DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, PopKeyboardEnhancementFlags}, execute};
+use crossterm::{
+    event::{
+        DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, PopKeyboardEnhancementFlags,
+    },
+    execute,
+};
 
 use crate::escape_codes::{
-    AllMotionTracking, ResetStyle, SetAlternateScreenBuffer, SetCursorVisibility, SetWin32InputMode, SgrMouseHandling
+    AllMotionTracking, ResetStyle, SetAlternateScreenBuffer, SetCursorVisibility,
+    SetWin32InputMode, SgrMouseHandling,
 };
 
 fn exit_helper(status_code: i32) -> Result<(), Box<dyn std::error::Error>> {
@@ -15,10 +21,7 @@ fn exit_helper(status_code: i32) -> Result<(), Box<dyn std::error::Error>> {
         DisableMouseCapture,
     );
 
-    let _ignored = execute!(
-        std::io::stdout(),
-        PopKeyboardEnhancementFlags,
-    );
+    let _ignored = execute!(std::io::stdout(), PopKeyboardEnhancementFlags,);
 
     let mut stdout = std::io::stdout();
     let _ignored = stdout.write(ResetStyle::default().into());

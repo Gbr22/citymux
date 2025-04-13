@@ -1,12 +1,12 @@
 use renterm::vector::Vector2;
 
 pub struct MoveCursor {
-    y: isize,
-    x: isize,
+    y: i32,
+    x: i32,
 }
 
 impl MoveCursor {
-    pub fn new(y: isize, x: isize) -> Self {
+    pub fn new(y: i32, x: i32) -> Self {
         MoveCursor { y, x }
     }
 }
@@ -38,9 +38,7 @@ impl From<ClearScreen> for &[u8] {
 
 impl ClearScreen {
     pub fn new() -> Self {
-        ClearScreen {
-            _private: (),
-        }
+        ClearScreen { _private: () }
     }
 }
 

@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 vt100 = { version = "0.15.*", optional = true }
+num-traits = "0.2"
 
 [features]
 vt100 = ["dep:vt100"]

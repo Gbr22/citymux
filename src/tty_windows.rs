@@ -169,7 +169,7 @@ pub async fn spawn_interactive_process(
 
         let data = serde_cbor::to_vec(&options)?;
         let data = BASE32HEX_NOPAD.encode(&data);
-        let command_line = format!("!spawn-{}",data);
+        let command_line = format!("!spawn-{}", data);
         let mut comment_line = std::ffi::OsString::from(command_line)
             .encode_wide()
             .chain(std::iter::once(0))
@@ -200,7 +200,7 @@ pub async fn spawn_interactive_process(
             output_read,
             output_write,
             proc_info,
-            size,
+            size: size.clone(),
             done_future: None,
             is_closed: is_closed.clone(),
         };
@@ -304,6 +304,6 @@ impl TerminalLike for WinPTY {
     }
 
     fn size(&self) -> Vector2 {
-        self.size
+        self.size.clone()
     }
 }

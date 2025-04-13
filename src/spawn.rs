@@ -1,10 +1,17 @@
-use std::{collections::HashMap, sync::Arc};
 use renterm::vector::Vector2;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 use which::which;
 
 use crate::{
-    draw::trigger_draw, exit::exit, layout::get_span_dimensions, process::handle_process, span::{get_root_dimensions, Node, NodeData, Span, SpanChild, SpanDirection}, state::{Process, StateContainer}, term::TerminalInfo, tty::spawn_interactive_process
+    draw::trigger_draw,
+    exit::exit,
+    layout::get_span_dimensions,
+    process::handle_process,
+    span::{get_root_dimensions, Node, NodeData, Span, SpanChild, SpanDirection},
+    state::{Process, StateContainer},
+    term::TerminalInfo,
+    tty::spawn_interactive_process,
 };
 
 pub async fn create_span(state_container: StateContainer) -> anyhow::Result<usize> {
@@ -61,7 +68,7 @@ pub async fn create_span(state_container: StateContainer) -> anyhow::Result<usiz
                     Ok(new_id)
                 }
                 NodeData::Span(span) => {
-                    let active_sizes = get_span_dimensions(root, active_id, root_rect);
+                    let active_sizes = get_span_dimensions(root, active_id, root_rect.clone());
                     let Some(active_sizes) = active_sizes else {
                         return Err(anyhow::format_err!("Could not find active sizes"));
                     };
@@ -210,15 +217,21 @@ pub async fn create_process(
     let new_id = create_span(state_container.clone()).await?;
     let size = Vector2 { x: 1, y: 1 };
     let program = {
-        state_container.state().config.read().await.default_shell.clone()
+        state_container
+            .state()
+            .config
+            .read()
+            .await
+            .default_shell
+            .clone()
     };
     let program = which(program)?.to_string_lossy().to_string();
     let mut env: HashMap<String, String> = HashMap::new();
     env.insert("TERM".to_string(), "xterm-citymux".to_string());
-    
+
     tracing::debug!("Spawning program: {}", program);
     let args = vec![];
-    let result = spawn_interactive_process(&program, &env, &args, size).await?;
+    let result = spawn_interactive_process(&program, &env, &args, size.clone()).await?;
     tracing::debug!("Program spawned: {}", program);
     let process = Process {
         stdin: Arc::new(Mutex::new(result.stdin)),

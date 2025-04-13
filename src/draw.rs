@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
-use renterm::{cell::Cell, color::Color, rect::Rect, style::Style, surface::Surface, text::DrawableStr, vector::Vector2};
+use renterm::{
+    cell::Cell, color::Color, rect::Rect, style::Style, surface::Surface, text::DrawableStr,
+    vector::Vector2,
+};
 use tokio::{io::AsyncWriteExt, sync::Mutex, time::MissedTickBehavior};
 
 use crate::{
-    escape_codes::{CursorForward, EraseCharacter, MoveCursor, ResetStyle, SetCursorVisibility},
+    escape_codes::{MoveCursor, ResetStyle, SetCursorVisibility},
     layout::get_span_dimensions,
     size::update_size,
     span::{Node, NodeData},
@@ -35,7 +38,7 @@ pub async fn draw_node_content(
     let process = process.lock().await;
     let size = output_canvas.size();
     let mut terminal = process.terminal_info.lock().await;
-    terminal.set_size(size);
+    terminal.set_size(size.clone());
     {
         let mut terminal = process.terminal.lock().await;
         if terminal.size() != size {
@@ -63,11 +66,8 @@ pub async fn draw_node(
             }
         }
         NodeData::Void => {
-            let dimensions = get_span_dimensions(
-                root,
-                node.id,
-                Rect::new(Vector2::new(0, 0), canvas.size()),
-            );
+            let dimensions =
+                get_span_dimensions(root, node.id, Rect::new(Vector2::new(0, 0), canvas.size()));
             let Some(dimensions) = dimensions else {
                 return Err(anyhow::format_err!("Could not find dimensions of span"));
             };
@@ -121,12 +121,21 @@ pub async fn draw_node(
                     let process = process.lock().await;
                     let terminal_info = process.terminal_info.lock().await;
                     let title = format!("[{}]", terminal_info.title());
-                    let title = DrawableStr::new(&title, Style::default()
-                    .with_background_color(highlight_color.clone())
-                    .with_foreground_color(Color::new_one_byte(0)));
-                    canvas.draw_in(&title, Rect::new(Vector2::new(1, 0), Vector2::new(canvas.size().x-2, 1)));
+                    let title = DrawableStr::new(
+                        &title,
+                        Style::default()
+                            .with_background_color(highlight_color.clone())
+                            .with_foreground_color(Color::new_one_byte(0)),
+                    );
+                    canvas.draw_in(
+                        &title,
+                        Rect::new(Vector2::new(1, 0), Vector2::new(canvas.size().x - 2, 1)),
+                    );
                 }
-                let mut proc_canvas = canvas.to_sub_view(Rect::new(Vector2::new(1, 1), canvas.size() - Vector2::new(2, 2)));
+                let mut proc_canvas = canvas.to_sub_view(Rect::new(
+                    Vector2::new(1, 1),
+                    canvas.size() - Vector2::new(2, 2),
+                ));
                 let future =
                     draw_node_content(state_container.clone(), node, process, &mut proc_canvas);
                 Box::pin(future).await?;
@@ -143,12 +152,12 @@ async fn draw_inner(state_container: StateContainer) -> anyhow::Result<()> {
 
     let state = state_container.state();
 
-    let size: Vector2 = *state.size.read().await;
+    let size: Vector2 = state.size.read().await.to_owned();
     let last_canvas = state.get_last_canvas();
     let last_canvas = last_canvas.lock().await;
     let new_canvas = state.get_current_canvas();
     let mut new_canvas = new_canvas.lock().await;
-    new_canvas.set_size(size);
+    new_canvas.set_size(size.clone());
 
     {
         let state = state_container.state();
@@ -173,7 +182,7 @@ async fn draw_inner(state_container: StateContainer) -> anyhow::Result<()> {
                 for x in 0..new_canvas.size().x {
                     let cell = new_canvas.get_cell((x, y).into());
 
-                    to_write.extend(format!("\x1b[{};{}H",y+1,x+1).as_bytes());
+                    to_write.extend(format!("\x1b[{};{}H", y + 1, x + 1).as_bytes());
 
                     if cell.style != last_style {
                         to_write.extend(Into::<&[u8]>::into(ResetStyle::default()));
@@ -215,7 +224,7 @@ async fn draw_inner(state_container: StateContainer) -> anyhow::Result<()> {
                     let span = get_span_dimensions(
                         root,
                         process.span_id,
-                        Rect::new(Vector2::new(0, 0), size),
+                        Rect::new(Vector2::new(0, 0), size.clone()),
                     );
                     if let Some(span) = span {
                         to_write.extend(&Into::<Vec<u8>>::into(MoveCursor::from(

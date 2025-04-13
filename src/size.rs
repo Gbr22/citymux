@@ -7,10 +7,10 @@ pub async fn update_size(state_container: StateContainer) -> Result<Vector2, any
     let size = state_container.state().size.clone();
     let size = {
         let mut size = size.write().await;
-        size.y = height as isize;
-        size.x = width as isize;
+        size.y = height as i32;
+        size.x = width as i32;
 
-        *size
+        size.to_owned()
     };
 
     Ok(size)

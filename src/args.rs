@@ -1,7 +1,7 @@
 use clap::arg;
 use clap::Arg;
-use clap::Command;
 use clap::Args;
+use clap::Command;
 use clap::Parser;
 
 pub struct CliArgs {
@@ -12,9 +12,12 @@ pub struct CliArgs {
 impl CliArgs {
     pub fn parse() -> CliArgs {
         let matches = get_clap_parser().get_matches();
-        let log_file = matches.get_one::<String>("logFile").map(|e|e.to_string());
-        let enable_logging = matches.get_one::<bool>("enableLogging").map(|e|*e).unwrap_or_default();
-        
+        let log_file = matches.get_one::<String>("logFile").map(|e| e.to_string());
+        let enable_logging = matches
+            .get_one::<bool>("enableLogging")
+            .map(|e| *e)
+            .unwrap_or_default();
+
         CliArgs {
             log_file,
             enable_logging,
@@ -25,16 +28,18 @@ impl CliArgs {
 pub fn get_clap_parser() -> Command {
     Command::new("citymux")
         .about("Terminal multiplexer")
-        .arg(Arg::new("logFile")
-            .long("log-file")
-            .value_name("FILE")
-            .help("Set the log file path")
-            .required(false)
+        .arg(
+            Arg::new("logFile")
+                .long("log-file")
+                .value_name("FILE")
+                .help("Set the log file path")
+                .required(false),
         )
-        .arg(Arg::new("enableLogging")
-            .long("enable-logging")
-            .help("Enable logging")
-            .num_args(0)
-            .required(false)
+        .arg(
+            Arg::new("enableLogging")
+                .long("enable-logging")
+                .help("Enable logging")
+                .num_args(0)
+                .required(false),
         )
 }

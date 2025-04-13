@@ -10,8 +10,11 @@ use state::{State, StateContainer};
 use tokio::io::{self};
 use tty::TtyParameters;
 
+mod args;
+mod config;
 mod draw;
 mod encoding;
+mod error;
 mod escape_codes;
 mod exit;
 mod input;
@@ -22,13 +25,10 @@ mod span;
 mod spawn;
 mod startup;
 mod state;
+mod term;
 mod terminal;
 mod tty;
 mod tty_windows;
-mod term;
-mod args;
-mod config;
-mod error;
 
 async fn run_multiplexer() -> anyhow::Result<()> {
     let args = CliArgs::parse();
@@ -40,7 +40,9 @@ async fn run_multiplexer() -> anyhow::Result<()> {
             .with_file(true)
             .with_line_number(true)
             .with_writer(|| {
-                let log_file = CliArgs::parse().log_file.expect("Expected log file path to be Some");
+                let log_file = CliArgs::parse()
+                    .log_file
+                    .expect("Expected log file path to be Some");
 
                 OpenOptions::new()
                     .append(true)
@@ -61,7 +63,7 @@ async fn run_multiplexer() -> anyhow::Result<()> {
         exit(1);
     }));
 
-    let state_container = StateContainer::new(State::new(args,config,io::stdin(), io::stdout()));
+    let state_container = StateContainer::new(State::new(args, config, io::stdin(), io::stdout()));
     if let Err(e) = run_application(state_container).await {
         trace_error("in application", &e);
         exit(1);
@@ -93,8 +95,7 @@ async fn main() -> anyhow::Result<()> {
             run_subprocess(value).await?;
         }
         return Ok(());
-    }
-    else {
+    } else {
         run_multiplexer().await?
     }
 

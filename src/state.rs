@@ -1,6 +1,9 @@
 use std::{
     pin::Pin,
-    sync::{atomic::{AtomicBool, AtomicUsize}, Arc},
+    sync::{
+        atomic::{AtomicBool, AtomicUsize},
+        Arc,
+    },
 };
 
 use renterm::{canvas::Canvas, rect::Rect, vector::Vector2};
@@ -10,7 +13,8 @@ use tokio::{
 };
 
 use crate::{
-    args::CliArgs, config::Config, draw::DrawMessage, layout::get_span_dimensions, process::TerminalLike, span::Node, term::TerminalInfo
+    args::CliArgs, config::Config, draw::DrawMessage, layout::get_span_dimensions,
+    process::TerminalLike, span::Node, term::TerminalInfo,
 };
 
 pub struct Process {
@@ -48,22 +52,34 @@ pub struct State {
 
 impl State {
     pub fn get_last_canvas(&self) -> Arc<Mutex<Canvas>> {
-        if self.canvas_toggle.load(std::sync::atomic::Ordering::Relaxed) == true {
+        if self
+            .canvas_toggle
+            .load(std::sync::atomic::Ordering::Relaxed)
+            == true
+        {
             self.canvas_1.clone()
         } else {
             self.canvas_2.clone()
         }
     }
     pub fn get_current_canvas(&self) -> Arc<Mutex<Canvas>> {
-        if self.canvas_toggle.load(std::sync::atomic::Ordering::Relaxed) == false {
+        if self
+            .canvas_toggle
+            .load(std::sync::atomic::Ordering::Relaxed)
+            == false
+        {
             self.canvas_1.clone()
         } else {
             self.canvas_2.clone()
         }
     }
     pub fn swap_canvas(&self) {
-        self.canvas_toggle
-            .store(!self.canvas_toggle.load(std::sync::atomic::Ordering::Relaxed), std::sync::atomic::Ordering::Relaxed);
+        self.canvas_toggle.store(
+            !self
+                .canvas_toggle
+                .load(std::sync::atomic::Ordering::Relaxed),
+            std::sync::atomic::Ordering::Relaxed,
+        );
     }
     pub async fn active_process(&self) -> Option<Arc<Mutex<Process>>> {
         let active_process_id = self.active_id.load(std::sync::atomic::Ordering::Relaxed);

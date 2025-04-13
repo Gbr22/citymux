@@ -1,6 +1,12 @@
-use renterm::{canvas::Canvas, cell::{Cell, CellValue}, style::Style, surface::Surface, vector::Vector2};
-use vt100::Parser;
+use renterm::{
+    canvas::Canvas,
+    cell::{Cell, CellValue},
+    style::Style,
+    surface::Surface,
+    vector::Vector2,
+};
 use std::fmt::Debug;
+use vt100::Parser;
 
 pub struct TerminalInfo {
     size: Vector2,
@@ -69,8 +75,8 @@ impl TerminalInfo {
     pub fn new(size: Vector2) -> Self {
         let size = size.max(MIN_TERMINAL_SIZE);
         TerminalInfo {
-            size,
             parser: vt100::Parser::new(size.y as u16, size.x as u16, 0),
+            size,
         }
     }
     pub fn set_size(&mut self, size: Vector2) {
@@ -78,15 +84,15 @@ impl TerminalInfo {
         if self.size == size {
             return;
         }
-        self.size = size;
         self.parser.set_size(size.y as u16, size.x as u16);
+        self.size = size;
     }
     pub fn title(&self) -> String {
         self.parser.screen().title().to_string()
     }
     pub fn cursor_position(&self) -> Vector2 {
         let (y, x) = self.parser.screen().cursor_position();
-        Vector2::new(x as isize, y as isize)
+        Vector2::new(x, y)
     }
     pub fn is_cursor_visible(&self) -> bool {
         !self.parser.screen().hide_cursor()
@@ -94,11 +100,11 @@ impl TerminalInfo {
     pub fn draw(&self, canvas: &mut impl Surface) {
         let screen = self.parser.screen();
         let (height, width) = screen.size();
-        let size = Vector2::new(width as isize, height as isize);
+        let size = Vector2::new(width, height);
         canvas.set_size(size);
         for y in 0..height {
             for x in 0..width {
-                let position = (x as isize, y as isize).into();
+                let position = (x, y).into();
                 let cell = screen.cell(y, x);
                 let Some(cell) = cell else {
                     let style = Style::default();

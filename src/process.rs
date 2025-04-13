@@ -1,8 +1,8 @@
+use renterm::vector::Vector2;
 use std::fmt::Display;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use renterm::vector::Vector2;
 use tokio::io::{AsyncReadExt, ReadBuf};
 
 use tokio::sync::Mutex;

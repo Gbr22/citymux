@@ -13,9 +13,7 @@ pub fn get_default_config() -> Config {
     };
     let default_shell = std::env::var("SHELL").ok().unwrap_or(os_default_shell);
 
-    Config {
-        default_shell,
-    }
+    Config { default_shell }
 }
 
 fn get_xdg_config_dir() -> Option<PathBuf> {
@@ -46,7 +44,10 @@ fn get_config_optional() -> Option<Config> {
     let config_file = config_dir.join("citymux").join("config.kdl");
     let contents = std::fs::read_to_string(config_file).ok()?;
     let document = kdl::KdlDocument::parse_v2(&contents).ok()?;
-    let shell_node = document.nodes().iter().find(|e|e.name().to_string() == "default_shell");
+    let shell_node = document
+        .nodes()
+        .iter()
+        .find(|e| e.name().to_string() == "default_shell");
     if let Some(shell_node) = shell_node {
         let shell = shell_node.entries().first();
         if let Some(shell) = shell {

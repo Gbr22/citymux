@@ -1,37 +1,39 @@
 use std::ops::Sub;
 
+use crate::scalar::Scalar;
+
 use super::{border::BorderSize, vector::Vector2};
 
-#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
-pub struct Rect {
-    position: Vector2,
-    size: Vector2,
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
+pub struct Rect<T: Scalar = i32> {
+    position: Vector2<T>,
+    size: Vector2<T>,
 }
 
-impl Rect {
-    pub const fn new(position: Vector2, size: Vector2) -> Self {
-        let size = size.max(Vector2::null());
+impl <S: Scalar> Rect<S> {
+    pub fn new(position: Vector2<S>, size: Vector2<S>) -> Rect<S> {
+        let size = size.max(Vector2::<S>::null());
         Rect { position, size }
     }
-    pub const fn contains(&self, vector: Vector2) -> bool {
+    pub fn contains(&self, vector: Vector2<S>) -> bool {
         vector.x >= self.position().x
             && vector.y >= self.position().y
             && vector.x < self.position().x + self.size().x
             && vector.y < self.position().y + self.size().y
     }
-    pub const fn position(&self) -> Vector2 {
-        self.position
+    pub fn position(&self) -> Vector2<S> {
+        self.position.clone()
     }
-    pub const fn top_left(&self) -> Vector2 {
+    pub fn top_left(&self) -> Vector2<S> {
         self.position()
     }
-    pub const fn bottom_right(&self) -> Vector2 {
-        self.position().add(self.size())
+    pub fn bottom_right(&self) -> Vector2<S> {
+        self.position() + self.size()
     }
-    pub const fn size(&self) -> Vector2 {
-        self.size
+    pub fn size(&self) -> Vector2<S> {
+        self.size.clone()
     }
-    pub const fn set_size(&mut self, size: Vector2) {
+    pub fn set_size(&mut self, size: Vector2<S>) {
         self.size = size.max(Vector2::null());
     }
 }
@@ -40,10 +42,10 @@ impl Sub<BorderSize> for Rect {
     type Output = Rect;
 
     fn sub(mut self, rhs: BorderSize) -> Self::Output {
-        self.position.x += rhs.size as isize;
-        self.position.y += rhs.size as isize;
-        self.size.x -= rhs.size as isize;
-        self.size.y -= rhs.size as isize;
+        self.position.x += rhs.size as i32;
+        self.position.y += rhs.size as i32;
+        self.size.x -= rhs.size as i32;
+        self.size.y -= rhs.size as i32;
 
         self
     }

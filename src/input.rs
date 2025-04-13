@@ -4,7 +4,9 @@ use renterm::vector::Vector2;
 use tokio::io::AsyncWriteExt;
 
 use crate::{
-    draw::trigger_draw, spawn::{create_process, kill_active_span}, state::StateContainer
+    draw::trigger_draw,
+    spawn::{create_process, kill_active_span},
+    state::StateContainer,
 };
 
 pub async fn write_input(
@@ -49,155 +51,149 @@ impl Default for KeyEventConversionOptions {
 
 fn key_event_to_bytes(event: KeyEvent, options: KeyEventConversionOptions) -> Vec<u8> {
     let mut bytes = Vec::new();
-    if event.kind == crossterm::event::KeyEventKind::Press || event.kind == crossterm::event::KeyEventKind::Repeat {
+    if event.kind == crossterm::event::KeyEventKind::Press
+        || event.kind == crossterm::event::KeyEventKind::Repeat
+    {
         match event.code {
             KeyCode::Backspace => {
                 bytes.push(0x7f);
-            },
+            }
             KeyCode::Enter => {
                 if options.is_application_keypad_mode_enabled {
                     bytes.extend_from_slice("\x1bOM".as_bytes());
-                }
-                else {
+                } else {
                     bytes.push(b'\r');
                 }
-            },
+            }
             KeyCode::Left => {
                 if options.is_application_keypad_mode_enabled {
                     bytes.extend_from_slice("\x1bOD".as_bytes());
-                }
-                else {
+                } else {
                     bytes.extend_from_slice("\x1b[D".as_bytes());
                 }
-            },
+            }
             KeyCode::Right => {
                 if options.is_application_keypad_mode_enabled {
                     bytes.extend_from_slice("\x1bOC".as_bytes());
-                }
-                else {
+                } else {
                     bytes.extend_from_slice("\x1b[C".as_bytes());
                 }
-            },
+            }
             KeyCode::Up => {
                 if options.is_application_keypad_mode_enabled {
                     bytes.extend_from_slice("\x1bOA".as_bytes());
-                }
-                else {
+                } else {
                     bytes.extend_from_slice("\x1b[A".as_bytes());
                 }
-            },
+            }
             KeyCode::Down => {
                 if options.is_application_keypad_mode_enabled {
                     bytes.extend_from_slice("\x1bOB".as_bytes());
-                }
-                else {
+                } else {
                     bytes.extend_from_slice("\x1b[B".as_bytes());
                 }
-            },
+            }
             KeyCode::Home => {
                 if options.is_application_keypad_mode_enabled {
                     bytes.extend_from_slice("\x1bOH".as_bytes());
-                }
-                else {
+                } else {
                     bytes.extend_from_slice("\x1b[H".as_bytes());
                 }
-            },
+            }
             KeyCode::End => {
                 if options.is_application_keypad_mode_enabled {
                     bytes.extend_from_slice("\x1bOF".as_bytes());
-                }
-                else {
+                } else {
                     bytes.extend_from_slice("\x1b[F".as_bytes());
                 }
-            },
+            }
             KeyCode::Delete => {
                 bytes.extend_from_slice("\x1b[3~".as_bytes());
-            },
+            }
             KeyCode::PageUp => {
                 if options.is_application_keypad_mode_enabled {
                     bytes.extend_from_slice("\x1bO5".as_bytes());
-                }
-                else {
+                } else {
                     bytes.extend_from_slice("\x1b[5~".as_bytes());
                 }
-            },
+            }
             KeyCode::PageDown => {
                 if options.is_application_keypad_mode_enabled {
                     bytes.extend_from_slice("\x1bO6".as_bytes());
-                }
-                else {
+                } else {
                     bytes.extend_from_slice("\x1b[6~".as_bytes());
                 }
-            },
+            }
             KeyCode::Tab => {
                 if options.is_application_keypad_mode_enabled {
                     bytes.extend_from_slice("\x1bOI".as_bytes());
-                }
-                else {
+                } else {
                     bytes.push(b'\t');
                 }
-            },
+            }
             KeyCode::Insert => {
                 if options.is_application_keypad_mode_enabled {
                     bytes.extend_from_slice("\x1bO2".as_bytes());
-                }
-                else {
+                } else {
                     bytes.extend_from_slice("\x1b[2~".as_bytes());
                 }
-            },
+            }
             KeyCode::BackTab => {
                 if options.is_application_keypad_mode_enabled {
                     bytes.extend_from_slice("\x1bOZ".as_bytes());
-                }
-                else {
+                } else {
                     bytes.extend_from_slice("\x1b[Z".as_bytes());
                 }
-            },
-            KeyCode::F(_value) => {
-
-            },
+            }
+            KeyCode::F(_value) => {}
             KeyCode::Char(char) => {
                 if event.modifiers.intersects(KeyModifiers::CONTROL) && char.is_ascii_alphabetic() {
                     let char = char.to_ascii_uppercase();
                     bytes.push(char as u8 - 'A' as u8 + 1);
-                }
-                else if event.modifiers.intersects(KeyModifiers::ALT) {
+                } else if event.modifiers.intersects(KeyModifiers::ALT) {
                     bytes.push(0x1b);
                     let string = format!("{}", char);
                     bytes.extend_from_slice(string.as_bytes());
-                }
-                else {
+                } else {
                     let string = format!("{}", char);
                     bytes.extend_from_slice(string.as_bytes());
                 }
-            },
+            }
             KeyCode::Null => {
                 bytes.push(0);
-            },
+            }
             KeyCode::Esc => {
                 bytes.push(0x1b);
-            },
-            KeyCode::CapsLock => {},
-            KeyCode::ScrollLock => {},
-            KeyCode::NumLock => {},
-            KeyCode::PrintScreen => {},
-            KeyCode::Pause => {},
-            KeyCode::Menu => {},
-            KeyCode::KeypadBegin => {},
-            KeyCode::Media(media_key_code) => {},
-            KeyCode::Modifier(modifier_key_code) => {},
+            }
+            KeyCode::CapsLock => {}
+            KeyCode::ScrollLock => {}
+            KeyCode::NumLock => {}
+            KeyCode::PrintScreen => {}
+            KeyCode::Pause => {}
+            KeyCode::Menu => {}
+            KeyCode::KeypadBegin => {}
+            KeyCode::Media(media_key_code) => {}
+            KeyCode::Modifier(modifier_key_code) => {}
         };
     }
-    
+
     bytes
 }
 
-async fn handle_shortcuts(state_container: StateContainer, event: KeyEvent) -> anyhow::Result<bool> {
-    if event.code == KeyCode::Char('q') && event.modifiers.intersects(KeyModifiers::ALT) && event.kind == crossterm::event::KeyEventKind::Press {
+async fn handle_shortcuts(
+    state_container: StateContainer,
+    event: KeyEvent,
+) -> anyhow::Result<bool> {
+    if event.code == KeyCode::Char('q')
+        && event.modifiers.intersects(KeyModifiers::ALT)
+        && event.kind == crossterm::event::KeyEventKind::Press
+    {
         kill_active_span(state_container.clone()).await?;
         return Ok(true);
-    }
-    else if event.code == KeyCode::Char('n') && event.modifiers.intersects(KeyModifiers::ALT) && event.kind == crossterm::event::KeyEventKind::Press {
+    } else if event.code == KeyCode::Char('n')
+        && event.modifiers.intersects(KeyModifiers::ALT)
+        && event.kind == crossterm::event::KeyEventKind::Press
+    {
         create_process(state_container.clone()).await?;
         return Ok(true);
     }
@@ -210,10 +206,25 @@ async fn handle_key_event(state_container: StateContainer, event: KeyEvent) -> a
         return Ok(());
     }
 
-    let data = key_event_to_bytes(event, KeyEventConversionOptions::default()
-            .with_application_keypad_mode(state_container.state().application_keypad_mode().await.unwrap_or(false)));
-        write_input(state_container, &data, true).await?;
+    let data = key_event_to_bytes(
+        event,
+        KeyEventConversionOptions::default().with_application_keypad_mode(
+            state_container
+                .state()
+                .application_keypad_mode()
+                .await
+                .unwrap_or(false),
+        ),
+    );
+    write_input(state_container, &data, true).await?;
 
+    Ok(())
+}
+
+async fn handle_mouse_event(
+    state_container: StateContainer,
+    event: crossterm::event::MouseEvent,
+) -> anyhow::Result<()> {
     Ok(())
 }
 
@@ -229,7 +240,14 @@ pub async fn handle_stdin(state_container: StateContainer) -> anyhow::Result<()>
             if let Some(Ok(Event::Resize(x, y))) = maybe_event {
                 let state = state_container.state();
                 let mut size = state.size.write().await;
-                *size = Vector2::new(x as isize, y as isize);
+                *size = Vector2::new(x, y);
+                trigger_draw(state_container.clone()).await;
+            }
+            if let Some(Ok(Event::Mouse(event))) = maybe_event {
+                let state = state_container.state();
+                let mut current_mouse_position = state.current_mouse_position.write().await;
+                *current_mouse_position = (event.column, event.row).into();
+                handle_mouse_event(state_container.clone(), event).await?;
                 trigger_draw(state_container.clone()).await;
             }
         }

@@ -1,18 +1,12 @@
+use crate::{scalar::Scalar, DefaultScalar};
+
 #[derive(Clone, Copy, Default, Debug)]
-pub struct BorderSize {
-    pub size: usize,
+pub struct BorderSize<S: Scalar = DefaultScalar> {
+    pub size: S,
 }
 
-impl From<usize> for BorderSize {
-    fn from(value: usize) -> Self {
-        BorderSize { size: value }
-    }
-}
-
-impl From<isize> for BorderSize {
-    fn from(value: isize) -> Self {
-        BorderSize {
-            size: value.unsigned_abs(),
-        }
+impl <S: Scalar> From<S> for BorderSize<S> {
+    fn from(value: S) -> Self {
+        BorderSize { size: value.abs() }
     }
 }

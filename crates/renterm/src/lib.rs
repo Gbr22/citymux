@@ -12,3 +12,5 @@ pub mod color;
 pub mod style;
 pub mod cell;
 pub mod view;
+pub mod scalar;
+pub (crate) type DefaultScalar = i32;

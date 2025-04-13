@@ -680,6 +680,7 @@ dependencies = [
 name = "renterm"
 version = "0.1.0"
 dependencies = [
+ "num-traits",
  "vt100",
 ]
 

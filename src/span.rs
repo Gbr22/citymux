@@ -109,5 +109,5 @@ pub async fn get_root_dimensions(state_container: StateContainer) -> Rect {
     let state = state_container.state();
     let size = state.size.read().await;
 
-    Rect::new(Vector2::new(0, 0), *size)
+    Rect::new(Vector2::new(0, 0), size.clone())
 }

@@ -1,13 +1,18 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use crate::draw::draw_loop;
-use crate::escape_codes::{AllMotionTracking, ClearScreen, SetAlternateScreenBuffer, SetWin32InputMode, SgrMouseHandling};
+use crate::escape_codes::{
+    AllMotionTracking, ClearScreen, SetAlternateScreenBuffer, SetWin32InputMode, SgrMouseHandling,
+};
 use crate::input::handle_stdin;
 use crate::size::update_size;
 use crate::spawn::create_process;
 use crate::state::StateContainer;
 use crate::terminal::enable_raw_mode;
-use crossterm::event::{EnableBracketedPaste, EnableFocusChange, EnableMouseCapture, KeyboardEnhancementFlags, PushKeyboardEnhancementFlags};
+use crossterm::event::{
+    EnableBracketedPaste, EnableFocusChange, EnableMouseCapture, KeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
+};
 use crossterm::execute;
 use tokio::{io::AsyncWriteExt, sync::Mutex, task::JoinSet};
 
@@ -26,9 +31,7 @@ where
 
 async fn init_proc_handler(
     state_container: StateContainer,
-) -> anyhow::Result<
-    tokio::sync::mpsc::Receiver<Pin<Box<dyn Future<Output = ()> + Send>>>,
-> {
+) -> anyhow::Result<tokio::sync::mpsc::Receiver<Pin<Box<dyn Future<Output = ()> + Send>>>> {
     let rx: tokio::sync::mpsc::Receiver<Pin<Box<dyn Future<Output = ()> + Send>>> = {
         let state = state_container.state();
         let mut process_channel = state.process_channel.lock().await;
@@ -65,7 +68,7 @@ async fn handle_child_processes(
 }
 
 async fn init_screen(state_container: StateContainer) -> anyhow::Result<()> {
-    enable_raw_mode().map_err(|err|anyhow::Error::from_boxed(err))?;
+    enable_raw_mode().map_err(|err| anyhow::Error::from_boxed(err))?;
     update_size(state_container.clone()).await?;
 
     crossterm::terminal::enable_raw_mode()?;
@@ -78,21 +81,21 @@ async fn init_screen(state_container: StateContainer) -> anyhow::Result<()> {
 
     let _ignored = execute!(
         std::io::stdout(),
-        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::empty()
-            .union(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-            .union(KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES)
-            .union(KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS)
-            .union(KeyboardEnhancementFlags::REPORT_EVENT_TYPES))
+        PushKeyboardEnhancementFlags(
+            KeyboardEnhancementFlags::empty()
+                .union(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+                .union(KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES)
+                .union(KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS)
+                .union(KeyboardEnhancementFlags::REPORT_EVENT_TYPES)
+        )
     );
-    
+
     let stdout = state_container.state().stdout.clone();
     let mut stdout = stdout.lock().await;
     stdout
         .write(SetAlternateScreenBuffer::new(true).into())
         .await?;
-    stdout
-        .write(ClearScreen::new().into())
-        .await?;
+    stdout.write(ClearScreen::new().into()).await?;
     stdout.write(AllMotionTracking::new(true).into()).await?;
     stdout.write(SgrMouseHandling::new(true).into()).await?;
     stdout.flush().await?;
@@ -100,9 +103,7 @@ async fn init_screen(state_container: StateContainer) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn run_application(
-    state_container: StateContainer,
-) -> anyhow::Result<()> {
+pub async fn run_application(state_container: StateContainer) -> anyhow::Result<()> {
     init_screen(state_container.clone()).await?;
     let rx = init_proc_handler(state_container.clone()).await?;
     let rx = Arc::new(Mutex::new(rx));

@@ -15,7 +15,6 @@ fn canvas_view_read() {
     assert_eq!(view.get_cell(Vector2::new(51, 51)), Cell::new(' '));
 }
 
-
 #[test]
 fn canvas_view_write() {
     let mut canvas = Canvas::new(Vector2::new(100, 100));
