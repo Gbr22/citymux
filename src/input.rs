@@ -1,4 +1,6 @@
-use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers};
+use std::ops::Deref;
+
+use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
 use futures::StreamExt;
 use renterm::vector::Vector2;
 use tokio::io::AsyncWriteExt;
@@ -6,7 +8,7 @@ use tokio::io::AsyncWriteExt;
 use crate::{
     draw::trigger_draw,
     spawn::{create_process, kill_active_span},
-    state::StateContainer,
+    state::{State, StateContainer}, term::{MouseProtocolEncoding, MouseProtocolMode},
 };
 
 pub async fn write_input(
@@ -150,7 +152,7 @@ fn key_event_to_bytes(event: KeyEvent, options: KeyEventConversionOptions) -> Ve
                 if event.modifiers.intersects(KeyModifiers::CONTROL) && char.is_ascii_alphabetic() {
                     let char = char.to_ascii_uppercase();
                     bytes.push(char as u8 - 'A' as u8 + 1);
-                } else if event.modifiers.intersects(KeyModifiers::ALT) {
+                } else if event.modifiers.intersects(KeyModifiers::ALT) && char.is_ascii_alphabetic() {
                     bytes.push(0x1b);
                     let string = format!("{}", char);
                     bytes.extend_from_slice(string.as_bytes());
@@ -221,38 +223,171 @@ async fn handle_key_event(state_container: StateContainer, event: KeyEvent) -> a
     Ok(())
 }
 
+fn map_button_to_int(button: MouseButton) -> u8 {
+    match button {
+        MouseButton::Left => 0,
+        MouseButton::Middle => 1,
+        MouseButton::Right => 2,
+    }
+}
+
+async fn set_mouse_button_state(state_container: &StateContainer, button: u8, value: bool) {
+    let state = state_container.state();
+    let mut current_mouse_buttons = state.current_mouse_buttons.write().await;
+    current_mouse_buttons.insert(button, value);
+}
+
+async fn has_mouse_press(state_container: &StateContainer) -> bool {
+    let state = state_container.state();
+    let map = state.current_mouse_buttons.read().await;
+
+    map.iter().any(|(_,value)|*value)
+}
+
 async fn handle_mouse_event(
-    state_container: StateContainer,
+    state: &StateContainer,
     event: crossterm::event::MouseEvent,
 ) -> anyhow::Result<()> {
+    let position: Vector2 = Vector2::new(event.column, event.row);
+    let button = match event.kind {
+        MouseEventKind::Down(button) => map_button_to_int(button),
+        MouseEventKind::Up(button) => map_button_to_int(button),
+        MouseEventKind::Drag(button) => map_button_to_int(button),
+        MouseEventKind::ScrollUp => 64,
+        MouseEventKind::ScrollDown => 65,
+        _ => 0,
+    };
+    let _is_scroll = [64, 65].contains(&button);
+    let is_release = if let MouseEventKind::Up(_) = event.kind { true } else { false };
+    let is_press = if let MouseEventKind::Down(_) = event.kind { true } else { false };
+
+    match event.kind {
+        MouseEventKind::Down(button) => {
+            set_mouse_button_state(state, map_button_to_int(button), true).await;
+        }
+        MouseEventKind::Up(button) => {
+            set_mouse_button_state(state, map_button_to_int(button), false).await;
+        }
+        _ => {}
+    }
+    
+    let has_mouse_press = has_mouse_press(state).await;
+
+    {
+        let mut mouse_position = state.current_mouse_position.write().await;
+        *mouse_position = position.clone();
+    }
+
+    let processess = state.processes.read().await;
+    for process in processess.iter() {
+        let process = process.clone();
+        let process = process.lock().await;
+        let rect = state.get_span_dimensions(process.span_id).await;
+        let Some(rect) = rect else {
+            continue;
+        };
+        if rect.contains(position.clone()) {
+            let shifted_position = position.clone() - rect.position();
+            let terminal_info = process.terminal_info.lock().await;
+            let mouse_mode = terminal_info.mouse_protocol_mode();
+            if is_press {
+                state.set_active_span(process.span_id);
+            }
+            let mut should_write = false;
+            match mouse_mode {
+                MouseProtocolMode::None => {}
+                MouseProtocolMode::Press => {
+                    should_write = is_press;
+                }
+                MouseProtocolMode::PressRelease => {
+                    should_write = is_press || is_release;
+                }
+                MouseProtocolMode::ButtonMotion => {
+                    if has_mouse_press {
+                        should_write = true;
+                    }
+                }
+                MouseProtocolMode::AnyMotion => {
+                    should_write = true;
+                }
+            }
+            if should_write {
+                let encoding = terminal_info.mouse_protocol_encoding();
+                const LEGACY_MOUSE_MODE_OFFSET: u16 = 32;
+                const LEGACY_MOUSE_MODE_COORDINATE_OFFSET: u16 = LEGACY_MOUSE_MODE_OFFSET + 1;
+                let mouse_position_offset_vector: Vector2 = Vector2::new(
+                    LEGACY_MOUSE_MODE_COORDINATE_OFFSET,
+                    LEGACY_MOUSE_MODE_COORDINATE_OFFSET,
+                );
+                tracing::debug!("Sending mouse event: position: {:?} button: {:?} is_release: {:?}, encoding: {:?}", position, button, is_release, encoding);
+                match encoding {
+                    MouseProtocolEncoding::Default => {
+                        let shifted_position =
+                            shifted_position + mouse_position_offset_vector;
+                        let button = 3;
+                        let data = format!(
+                            "\x1b[M{}{}{}",
+                            char::from_u32((button + LEGACY_MOUSE_MODE_OFFSET) as u32)
+                                .unwrap_or_default(),
+                            char::from_u32(shifted_position.x as u32).unwrap_or_default(),
+                            char::from_u32(shifted_position.y as u32).unwrap_or_default()
+                        );
+                        let data = data.as_bytes();
+                        let mut stdin = process.stdin.lock().await;
+                        stdin.write(data).await?;
+                        stdin.flush().await?;
+                    }
+                    MouseProtocolEncoding::Sgr => {
+                        let command = if is_release { 'm' } else { 'M' };
+                        let data = format!(
+                            "\x1b[<{};{};{}{}",
+                            button, shifted_position.x, shifted_position.y, command
+                        );
+                        let data = data.as_bytes();
+                        let mut stdin = process.stdin.lock().await;
+                        stdin.write(data).await?;
+                        stdin.flush().await?;
+                    }
+                    MouseProtocolEncoding::Utf8 => {
+                        let command = if is_release { 'm' } else { 'M' };
+                        let data = format!(
+                            "\x1b[<{};{};{}{}",
+                            char::from_u32(button as u32).unwrap_or_default(),
+                            char::from_u32(shifted_position.x as u32).unwrap_or_default(),
+                            char::from_u32(shifted_position.y as u32).unwrap_or_default(),
+                            command
+                        );
+                        let data = data.as_bytes();
+                        let mut stdin = process.stdin.lock().await;
+                        stdin.write(data).await?;
+                        stdin.flush().await?;
+                    }
+                }
+            }
+            break;
+        }
+    }
+
     Ok(())
 }
 
-pub async fn handle_stdin(state_container: StateContainer) -> anyhow::Result<()> {
+pub async fn handle_stdin(state: StateContainer) -> anyhow::Result<()> {
     loop {
         let mut reader = EventStream::new();
         loop {
             let maybe_event = reader.next().await;
             if let Some(Ok(Event::Key(key))) = maybe_event {
-                handle_key_event(state_container.clone(), key).await?;
-                trigger_draw(state_container.clone()).await;
+                handle_key_event(state.to_owned(), key).await?;
+                trigger_draw(&state).await;
             }
             if let Some(Ok(Event::Resize(x, y))) = maybe_event {
-                {
-                    let state = state_container.state();
-                    let mut size = state.size.write().await;
-                    *size = Vector2::new(x, y);
-                }
-                trigger_draw(state_container.clone()).await;
+                state.set_size((x, y)).await;
+                trigger_draw(&state).await;
             }
             if let Some(Ok(Event::Mouse(event))) = maybe_event {
-                {
-                    let state = state_container.state();
-                    let mut current_mouse_position = state.current_mouse_position.write().await;
-                    *current_mouse_position = (event.column, event.row).into();
-                    handle_mouse_event(state_container.clone(), event).await?;
-                }
-                trigger_draw(state_container.clone()).await;
+                state.set_mouse_position((event.column, event.row)).await;
+                handle_mouse_event(&state, event).await?;
+                trigger_draw(&state).await;
             }
         }
     }

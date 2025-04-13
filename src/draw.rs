@@ -252,8 +252,7 @@ pub struct DrawMessage {
     _private: (),
 }
 
-pub async fn trigger_draw(state_container: StateContainer) {
-    let state = state_container.state();
+pub async fn trigger_draw(state: &StateContainer) {
     let draw_channel = { state.draw_channel.lock().await.clone() };
     let Some(ref draw_channel) = draw_channel else {
         tracing::warn!("No draw channel");

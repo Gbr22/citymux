@@ -90,7 +90,7 @@ pub async fn handle_process(
                 let mut canvas = process.terminal_info.lock().await;
                 canvas.process(filled_buf);
             }
-            trigger_draw(state_container.clone()).await;
+            trigger_draw(&state_container).await;
         }
     };
     let done_future = {

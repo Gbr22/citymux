@@ -1,9 +1,8 @@
 use std::{
-    pin::Pin,
-    sync::{
+    collections::HashMap, ops::Deref, pin::Pin, sync::{
         atomic::{AtomicBool, AtomicUsize},
         Arc,
-    },
+    }
 };
 
 use renterm::{canvas::Canvas, rect::Rect, vector::Vector2};
@@ -46,6 +45,7 @@ pub struct State {
     pub root_node: Arc<RwLock<Option<Node>>>,
     pub span_id_counter: AtomicUsize,
     pub current_mouse_position: Arc<RwLock<Vector2>>,
+    pub current_mouse_buttons: Arc<RwLock<HashMap<u8, bool>>>,
     pub active_id: AtomicUsize,
     pub draw_lock: Arc<Mutex<()>>,
 }
@@ -132,12 +132,21 @@ impl State {
             span_id_counter: AtomicUsize::new(0),
             active_id: AtomicUsize::new(0),
             current_mouse_position: Arc::new(RwLock::new(Vector2::null())),
+            current_mouse_buttons: Arc::new(RwLock::new(HashMap::new())),
             draw_lock: Arc::new(Mutex::new(())),
         }
     }
     pub fn set_active_span(&self, span_id: usize) {
         self.active_id
             .store(span_id, std::sync::atomic::Ordering::Relaxed)
+    }
+    pub async fn set_mouse_position(&self, position: impl Into<Vector2>) {
+        let mut lock = self.current_mouse_position.write().await;
+        *lock = position.into();
+    }
+    pub async fn set_size(&self, size: impl Into<Vector2>) {
+        let mut lock = self.size.write().await;
+        *lock = size.into();
     }
 }
 
@@ -153,5 +162,21 @@ impl StateContainer {
     }
     pub fn state(&self) -> Arc<State> {
         self.state.clone()
+    }
+}
+
+impl Deref for StateContainer {
+    type Target = Arc<State>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl std::ops::Not for &StateContainer {
+    type Output = StateContainer;
+
+    fn not(self) -> Self::Output {
+        self.clone()
     }
 }

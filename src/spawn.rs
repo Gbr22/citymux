@@ -276,7 +276,7 @@ pub async fn create_process(
         }
     }
 
-    trigger_draw(state_container.clone()).await;
+    trigger_draw(&state_container).await;
 
     Ok(process)
 }
@@ -356,7 +356,7 @@ pub async fn kill_span(
     tracing::debug!("Killing span: {}", span_id);
     remove_node_from_state(state_container.clone(), span_id).await?;
     kill_process(state_container.clone(), span_id).await?;
-    trigger_draw(state_container.clone()).await;
+    trigger_draw(&state_container).await;
 
     Ok(())
 }
