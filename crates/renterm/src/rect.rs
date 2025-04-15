@@ -1,4 +1,4 @@
-use std::ops::Sub;
+use std::ops::{Div, Sub};
 
 use crate::scalar::Scalar;
 
@@ -35,6 +35,16 @@ impl <S: Scalar> Rect<S> {
     }
     pub fn set_size(&mut self, size: Vector2<S>) {
         self.size = size.max(Vector2::null());
+    }
+}
+
+impl <S: Scalar> Div<S> for Rect<S> {
+    type Output = Rect<S>;
+
+    fn div(mut self, rhs: S) -> Self::Output {
+        self.size = self.size.div(rhs);
+
+        self
     }
 }
 

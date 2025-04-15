@@ -5,7 +5,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, ReadBuf};
 
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinError;
 
 use crate::draw::trigger_draw;
@@ -64,12 +64,12 @@ impl Display for TerminalError {
 
 pub async fn handle_process(
     state_container: StateContainer,
-    process: Arc<Mutex<Process>>,
+    process: Arc<RwLock<Process>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let stdout_future = async {
         loop {
             let stdout = {
-                let process = process.lock().await;
+                let process = process.read().await;
                 process.stdout.clone()
             };
             let mut buffer = vec![0; 4096];
@@ -86,7 +86,7 @@ pub async fn handle_process(
                 break;
             }
             {
-                let process = process.lock().await;
+                let process = process.read().await;
                 let mut canvas = process.terminal_info.lock().await;
                 canvas.process(filled_buf);
             }
@@ -94,7 +94,7 @@ pub async fn handle_process(
         }
     };
     let done_future = {
-        let process = process.lock().await;
+        let process = process.read().await;
         let mut terminal = process.terminal.lock().await;
         terminal.take_done_future()
     };
@@ -110,7 +110,7 @@ pub async fn handle_process(
     };
     tracing::debug!("Exiting process");
     let span_id = {
-        let process = process.lock().await;
+        let process = process.read().await;
         process.span_id
     };
     tracing::debug!("Exiting process in span: {}", span_id);

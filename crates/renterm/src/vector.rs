@@ -1,4 +1,4 @@
-use std::ops::{Add, Sub};
+use std::ops::{Add, Div, Sub};
 
 use crate::{scalar::Scalar, DefaultScalar};
 
@@ -41,6 +41,12 @@ impl <S: Scalar> Vector2<S> {
             y: self.y.min(other.y),
         }
     }
+    pub fn signnum(self) -> Self {
+        Vector2 {
+            x: self.x.signum(),
+            y: self.y.signum(),
+        }
+    }
 }
 
 impl <T: Scalar> From<Vector2<T>> for Rect<T> {
@@ -75,5 +81,22 @@ impl <S: Scalar> Sub for Vector2<S> {
             x: self.x - other.x,
             y: self.y - other.y,
         }
+    }
+}
+
+impl <S: Scalar> Div<S> for Vector2<S> {
+    type Output = Vector2<S>;
+
+    fn div(mut self, rhs: S) -> Self::Output {
+        self.x = self.x.div(rhs);
+        self.y = self.y.div(rhs);
+
+        self
+    }
+}
+
+impl <S: Scalar> Into<(S, S)> for Vector2<S> {
+    fn into(self) -> (S, S) {
+        (self.x, self.y)
     }
 }

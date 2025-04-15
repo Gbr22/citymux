@@ -1,6 +1,6 @@
 use renterm::vector::Vector2;
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use which::which;
 
 use crate::{
@@ -213,7 +213,7 @@ pub async fn create_span(state_container: StateContainer) -> anyhow::Result<usiz
 
 pub async fn create_process(
     state_container: StateContainer,
-) -> anyhow::Result<Arc<Mutex<Process>>> {
+) -> anyhow::Result<Arc<RwLock<Process>>> {
     let new_id = create_span(state_container.clone()).await?;
     let size = Vector2 { x: 1, y: 1 };
     let program = {
@@ -241,7 +241,7 @@ pub async fn create_process(
         span_id: new_id,
     };
 
-    let process = Arc::new(Mutex::new(process));
+    let process = Arc::new(RwLock::new(process));
     let processes = state_container.state().processes.clone();
     {
         let mut processes = processes.write().await;
@@ -368,7 +368,7 @@ pub async fn kill_process(state_container: StateContainer, span_id: usize) -> an
         let mut delete_index = None;
         let mut index: usize = 0;
         for process in &*processes {
-            let process = process.lock().await;
+            let process = process.read().await;
             if process.span_id == span_id {
                 delete_index = Some(index);
                 let mut terminal = process.terminal.lock().await;

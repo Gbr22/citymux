@@ -1,8 +1,11 @@
 use std::{
-    collections::HashMap, ops::Deref, pin::Pin, sync::{
+    collections::HashMap,
+    ops::Deref,
+    pin::Pin,
+    sync::{
         atomic::{AtomicBool, AtomicUsize},
         Arc,
-    }
+    },
 };
 
 use renterm::{canvas::Canvas, rect::Rect, vector::Vector2};
@@ -30,7 +33,7 @@ pub struct State {
     pub stdin: Arc<Mutex<dyn AsyncRead + Unpin + Send + Sync>>,
     pub stdout: Arc<Mutex<dyn AsyncWrite + Unpin + Send + Sync>>,
     pub size: Arc<RwLock<Vector2>>,
-    pub processes: Arc<RwLock<Vec<Arc<Mutex<Process>>>>>,
+    pub processes: Arc<RwLock<Vec<Arc<RwLock<Process>>>>>,
     pub process_channel: Arc<
         Mutex<
             Option<
@@ -81,11 +84,11 @@ impl State {
             std::sync::atomic::Ordering::Relaxed,
         );
     }
-    pub async fn active_process(&self) -> Option<Arc<Mutex<Process>>> {
+    pub async fn active_process(&self) -> Option<Arc<RwLock<Process>>> {
         let active_process_id = self.active_id.load(std::sync::atomic::Ordering::Relaxed);
         let lock = self.processes.read().await;
         for process in lock.iter() {
-            let lock = process.lock().await;
+            let lock = process.read().await;
             if lock.span_id == active_process_id {
                 return Some(process.clone());
             }
@@ -95,7 +98,7 @@ impl State {
     }
     pub async fn active_terminal_info(&self) -> Option<Arc<Mutex<TerminalInfo>>> {
         let active_process = self.active_process().await?;
-        let terminal_info = { active_process.lock().await.terminal_info.clone() };
+        let terminal_info = { active_process.read().await.terminal_info.clone() };
 
         Some(terminal_info)
     }

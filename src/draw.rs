@@ -4,7 +4,11 @@ use renterm::{
     cell::Cell, color::Color, rect::Rect, style::Style, surface::Surface, text::DrawableStr,
     vector::Vector2,
 };
-use tokio::{io::AsyncWriteExt, sync::Mutex, time::MissedTickBehavior};
+use tokio::{
+    io::AsyncWriteExt,
+    sync::RwLock,
+    time::MissedTickBehavior,
+};
 
 use crate::{
     escape_codes::{MoveCursor, ResetStyle, SetCursorVisibility},
@@ -17,10 +21,10 @@ use crate::{
 pub async fn find_process_by_id(
     state_container: StateContainer,
     id: usize,
-) -> Option<Arc<Mutex<Process>>> {
+) -> Option<Arc<RwLock<Process>>> {
     let processes = state_container.state().processes.read().await.clone();
     for process in processes {
-        let process_inner = process.lock().await;
+        let process_inner = process.read().await;
         if process_inner.span_id == id {
             return Some(process.clone());
         }
@@ -32,10 +36,10 @@ pub async fn find_process_by_id(
 pub async fn draw_node_content(
     state_container: StateContainer,
     node: &Node,
-    process: Arc<Mutex<Process>>,
+    process: Arc<RwLock<Process>>,
     output_canvas: &mut impl Surface,
 ) -> anyhow::Result<()> {
-    let process = process.lock().await;
+    let process = process.read().await;
     let size = output_canvas.size();
     let mut terminal = process.terminal_info.lock().await;
     terminal.set_size(size.clone());
@@ -118,7 +122,7 @@ pub async fn draw_node(
             let process = find_process_by_id(state_container.clone(), node.id).await;
             if let Some(process) = process {
                 {
-                    let process = process.lock().await;
+                    let process = process.read().await;
                     let terminal_info = process.terminal_info.lock().await;
                     let title = format!("[{}]", terminal_info.title());
                     let title = DrawableStr::new(
@@ -204,17 +208,17 @@ async fn draw_inner(state_container: StateContainer) -> anyhow::Result<()> {
         .state()
         .active_id
         .load(std::sync::atomic::Ordering::Relaxed);
-    let active_process: Option<Arc<Mutex<Process>>> =
+    let active_process: Option<Arc<RwLock<Process>>> =
         find_process_by_id(state_container.clone(), active_id).await;
     if let Some(ref process) = active_process {
-        let process = process.lock().await;
+        let process = process.read().await;
         let terminal = process.terminal_info.lock().await;
         cursor_position = terminal.cursor_position();
     }
 
     {
         if let Some(ref process) = active_process {
-            let process = process.lock().await;
+            let process = process.read().await;
             let terminal = process.terminal_info.lock().await;
             if terminal.is_cursor_visible() {
                 let state = state_container.state();
