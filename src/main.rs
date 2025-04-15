@@ -79,6 +79,11 @@ async fn run_subprocess(tty_params: TtyParameters) -> anyhow::Result<()> {
         .stderr(std::process::Stdio::inherit())
         .spawn()?;
 
+    ctrlc::set_handler(move || {
+        // Do nothing
+    })
+    .expect("Error setting Ctrl-C handler");
+
     let result = child.wait()?;
     std::process::exit(result.code().unwrap_or(1));
 }
