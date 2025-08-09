@@ -6,7 +6,7 @@ pub struct Config {
 }
 
 pub fn get_default_config() -> Config {
-    let os_default_shell = if cfg!(windows) {
+    let os_default_shell = if cfg!(target_os = "windows") {
         "cmd.exe".to_string()
     } else {
         "bash".to_string()

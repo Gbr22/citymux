@@ -28,7 +28,10 @@ mod state;
 mod term;
 mod terminal;
 mod tty;
+#[cfg(target_os = "windows")]
 mod tty_windows;
+#[cfg(unix)]
+mod tty_unix;
 
 async fn run_multiplexer() -> anyhow::Result<()> {
     let args = CliArgs::parse();
